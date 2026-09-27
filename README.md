@@ -218,12 +218,77 @@ el timeout es holgado en vez de ajustado al promedio: un timeout que se cae una 
 tres es peor que uno que nunca se cae, porque el promedio esconde el fallo. Con GPU el
 mismo lote baja de 5 minutos a menos de uno.
 
+Y un detalle que conviene no esconder: **en CPU el mismo modelo no es determinista.** Con
+temperatura 0.0 y `seed` fijo, dos llamadas idénticas devuelven texto distinto — es
+aritmética de punto flotante no asociativa en las multiplicaciones por matriz, no sampling.
+Medido sobre los 7 mensajes de muestra, dos corridas: 4 de 7 voltean `es_logro` y los 7
+cambian `relevant`.
+
+La respuesta no es intentar volver determinista el LLM, sino no depender de él en el
+momento de la decisión: **M2 persiste su análisis y M3 lo lee, no lo recalcula.** Un post
+publicado traza hasta el `Analisis` exacto que lo produjo. Re-correr M2 es una acción
+explícita y separada.
+
 El timeout de red es configurable (`LLM_TIMEOUT_SECONDS`, 900s por defecto) porque uno corto
 corta antes de que el modelo termine: peor que todo, porque se pierde el LLM y además saltea
 el error.
 
 `--modelo` existe para comparar dos modelos en la misma corrida. Comparar prompts exige
 que **solo** cambie el modelo.
+
+---
+
+## Puntuación y router (M3)
+
+Cada mensaje recibe un score y una ruta. El score se explica término por término, y eso no
+es un lujo: es la diferencia entre *"entró con 0.82 porque es una contratación y el tema
+Contratación aparece 3 veces en este lote"* — un argumento de dueño de producto — y
+`el LLM dijo 0.82`, que no es un argumento.
+
+```python
+from sieve.scoring import puntuar_lote, enrutar_lote
+
+puntajes = puntuar_lote(resumen)      # mismo orden que resumen.resultados
+for p in puntajes:
+    print(p.explicacion())
+    # 0.67 por sentimiento (0.97 x peso 0.37) [sin recencia: pesos renormalizados a 0.80]
+```
+
+### Un término que falta no vale cero
+
+El 20% del score es *recencia*, y necesita timestamps. Los datos de muestra no los tienen.
+La tentación es poner `0.5` para todos, y eso está mal por una razón concreta: el término
+deja de distinguir y **diluye los otros cuatro en silencio**. Dos lotes con contenido
+igual separados por dos horas dan el mismo score, y nadie se entera.
+
+Lo que hace Sieve es renormalizar: si un término no se puede calcular, **no está**, y su
+peso se reparte entre los que sí. El `Puntaje` declara cuáles faltaró.
+
+El precio, dicho con todas las letras: **dos lotes con datos distintos se puntúan con reglas
+distintas y no son comparables entre sí.** Por eso `terminos_ausentes` es un campo de
+primer nivel, no un detalle interno — quien compare dos puntajes ve la diferencia antes de
+comparar los números.
+
+La invariante que hace que esto sea confiable: los pesos *aplicados* siempre suman 1,
+pase lo que pase. Un test lo verifica para todas las combinaciones de disponibilidad.
+
+### El router tiene un hueco y el código lo dice
+
+Los umbrales del README cubren `score ≥ 0.65`, `pregunta y score ≥ 0.35` y `score < 0.35`.
+No cubren el caso *score entre 0.35 y 0.65, sin señal de logro y sin pregunta*.
+
+Ese caso cae a `highlight`, y no por arbitrariedad: es el activo de menor riesgo. Un
+resumen semanal publica conversación real; un post de LinkedIn publica **un testimonio con
+el nombre de alguien**. Cuando la especificación no dice, el destino por defecto tiene que
+ser el que menos puede hacer daño. Publicar de más es un problema de reputación; publicar
+de menos, uno de métricas.
+
+El orden de las reglas también es una decisión: si un mensaje es a la vez un hito y una
+pregunta, gana el hito. Un logro es la señal más cara de convertir en post, y mandarlo a
+FAQ tira el mejor material del lote.
+
+`caso_exito` y `faq` salen con `es_revision_manual=True`: no se publican sin que alguien
+los firme.
 
 ---
 
@@ -234,7 +299,7 @@ que **solo** cambie el modelo.
 | **M0** Cimientos | repo, estructura, contrato Pydantic | ✅ |
 | **M1** Ingesta | loaders JSON/CSV, fuente Stack Exchange, cache offline | ✅ |
 | **M2** Análisis | sentimiento y temas con LLM, heurística como piso | ✅ |
-| **M3** Puntuación y router | fórmula ponderada + ramas, con tests | |
+| **M3** Puntuación y router | fórmula ponderada + ramas, con tests | ✅ |
 | **M4** Activos | 3 formatos, prompts few-shot, JSON validado | |
 | **M5** OCI | bucket, PAR, política IAM acotada | |
 | **M6** Interfaz | panel de curaduría Streamlit con aprobar/rechazar | |
