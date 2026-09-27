@@ -339,7 +339,7 @@ midió.
 
 Los dos casos son tests del proyecto, con el texto del brief como fixture.
 
-### Los seis checks
+### Los siete checks
 
 El modelo propone, el código lo interroga. Se verifica **el artefacto**, nunca lo que el
 modelo declara que usó: si el gate dependiera de las declaraciones, un modelo que no
@@ -350,6 +350,7 @@ declara nada pasaría todos los checks.
 | `cifras` | `120`, "6 meses" si la fuente dice 3 |
 | `entidades` | `Globant`, `Nubank`, `#Emprendimiento` |
 | `escalera de compromiso` | `seleccionada` → `contratada` |
+| `nivel profesional` | `Desarrolladora Junior` → `Senior` |
 | `ordinales` | `su primera oportunidad` |
 | `superlativos` | `el mejor camino` |
 | `citas textuales` | `"me ascendieron a directora"` |
@@ -360,6 +361,16 @@ dura; y `seleccionada` y `contratada` describen situaciones parecidas, así que 
 sube un nivel sin querer. Las formas van enumeradas completas (`contratad[oa]s?`,
 `contrataron`) porque el español no tiene stem: con un prefijo `"seleccionada"` no matchea
 nunca, y con un stem `"empleadora"` matchea `"empleado"`.
+
+El séptimo check (`nivel profesional`) apareció al escribir el generador, no antes.
+`senior` y `junior` estaban en el vocabulario institucional para que `Sr` y `Jr` no
+produjeran falsos positivos, y cumplen — pero como efecto colateral **el nivel del cargo
+dejó de verificarse en ningún lado**: un post podía publicar "Desarrolladora Senior"
+sobre alguien que la fuente dice Junior. Es el mismo bug que `seleccionada` →
+`contratada`, y peor, porque el cargo de alguien es un hecho verificable y publicarlo
+inflado no se ve como publicarlo inflado. El trade-off está escrito en el código: "reunión
+con el equipo senior" es un falso positivo que se acepta a propósito, porque un hallazgo
+de más cuesta que un humano mire una frase.
 
 ### Tres detalles que parecen menores y no lo son
 
@@ -403,9 +414,131 @@ grounding debería marcarla. El costo es que un post puede ser completamente cie
 inútil. Completitud y veracidad son problemas distintos, y confundirlos es como un
 fallback heurístico que no lo dice.
 
-Lo que queda pendiente, y está anotado como tal: el panel de curaduría, el generador de
-activos, y decidir si hace falta un *sanitizador* que recorte en vez de reprobar. Nada de
-eso está implementado.
+Lo que queda pendiente, y está anotado como tal: el panel de curaduría. Y decidir si hace
+falta un *sanitizador* que recorte en vez de reprobar. Eso último **no** está implementado,
+y la respuesta por ahora es que no: el sanitizador es una decisión de negocio disfrazada de
+técnica, y primero hay que ver cuántos rechazos son de un superlativo de más.
+
+---
+
+## Generación de activos (M4)
+
+### Por qué el generador no tiene verificaciones propias
+
+`assets.py` no tiene ni una línea de lógica de verificación. La reimplementaría en peor, y
+lo peor de una reimplementación parcial es que el día que se agrega un check a
+`grounding.py` este módulo sigue verificando sin él, en silencio, y nadie se entera hasta
+que publica un activo con un número inventado. La pipeline es: `prompt` → `extraer_json` →
+`model_validate` → `verificar_activo` → gate.
+
+La defensa real no está en el prompt, que es una petición y no se puede testear. Está en
+**cuántos campos escribe el modelo**: de los nueve que tienen los tres activos, escribe
+tres.
+
+| Formato | Escribe el modelo | Escribe el sistema |
+|---|---|---|
+| `PostLinkedin` | `titulo`, `copy`, `hashtags`, `potencial_engagement` | `canal_recomendado`, `confianza`, `curado`, `fuentes` |
+| `Newsletter` | `titular`, `resumen` | `seccion`, `confianza`, `curado`, `fuentes` |
+| `SugerenciaFaq` | `tema` | `origen`, `status`, `confianza`, `curado`, `fuentes` |
+
+Cada campo que el modelo no escribe es un campo que no puede inventar. Dos consecuencias
+concretas:
+
+- **`origen` no lo escribe el modelo.** Sale del `Interaccion`. Si lo escribiera el modelo y
+  se equivocara de nombre, el nombre de una persona va al activo de otra, y el texto fluye
+  igual porque el nombre es el único token que el lector no chequea.
+- **`status` siempre es `derivado_a_mentoria`.** El contrato declara
+  `listo_para_publicar` como default, o sea que el default del contrato es el estado
+  peligroso: cualquier cosa que arme un `SugerenciaFaq` sin decir el status produce una FAQ
+  que aparenta estar lista y no tiene respuesta revisada por nadie. Ese overwrite es el
+  motivo por el que el generador arma el activo entero en vez de solo validarlo.
+
+### El generador puede no devolver nada
+
+`ResultadoGeneracion.activo` es `T | None`. Si el grounding rechaza, el activo es `None` y el
+informe explica por qué. No se repara, no se reintenta a ciegas, no se devuelve "lo mejor que
+pudo salir". Un pipeline que no puede devolver nada está obligado a inventar para llenar el
+hueco, y el hueco se llena con lo más riesgos: un testimonio con el nombre de una persona
+real.
+
+Un rechazo por grounding y un fallo de proveedor son cosas distintas y el tipo los separa:
+`rechazado_por_grounding` es `True` solo en el primero. Si se confunden, un pipeline
+"reintenta hasta que pase" termina publicando el activo de otra fuente. Tampoco reintenta a
+ciegas porque la segunda respuesta con otra semilla es **otro** activo, no una mejor versión
+del mismo, y como el LLM en CPU no es determinista eso hace imposible afirmar que el rechazo
+fue del grounding y no de la muestra.
+
+### La corrida real, y el idioma que se le escapó
+
+`qwen2.5:3b` en CPU, contra el mensaje del brief. Salida literal:
+
+```
+POST       -> rechazado
+   titulo/entidades :: 'Estudiantes Transforman Ideas' no esta en la fuente
+   titulo/entidades :: 'Soluciones' no esta en la fuente
+   titulo/entidades :: 'Impacto Proyectos Practicos' no esta en la fuente
+
+NEWSLETTER -> rechazado
+   titular/entidades :: 'Desenvolvedora Júnior' no esta en la fuente
+
+FAQ        -> aprobado   (publicable=False)
+   tema: Cómo fue seleccionada como Desarrolladora Junior de IA en Retail
+   status: derivado_a_mentoria
+   origen: Duda planteada por Mariana Souza en LinkedIn
+```
+
+Tres de tres pasan por el mismo tubo. Dos cosas para mirar:
+
+**El modelo escribió portugués.** "Desenvolvedora Júnior", con la palabra cambiada y el
+acento puesto. Es el único sintoma de esa corrida que casi no se ve a ojo: un titular con
+"Desenvolvedora" se lee perfecto para quien no fala portugués, suena igual de profesional, y
+no se nota. Lo que lo delata es que la palabra **no estaba en la fuente**, y ese es el
+trabajo del grounding: comparar, no leer. El caso general es peor que un idioma — un 3B puede
+inventar un nombre propio que suena exactamente a un nombre propio. Esto es la versión
+ruidosa de un problema silencioso.
+
+**El FAQ pasó y no es publicable igual.** El grounding aprueba el tema, `status` y `origen`
+los pone el sistema, y `publicable` sigue en `False` porque la firma es obligatoria y el panel
+no existe. Que eso sea cierto *por construcción* y no por costumbre es lo que hace segura la
+etapa siguiente.
+
+Tres de los cuatro checks que fallaron fueron en el **título** o el **titular**, no en el
+cuerpo. El cuerpo es largo y el modelo copia; el titular es corto, es donde se pone el
+adjetivo, y es donde nadie compara contra la fuente. Un check que solo mirara el `copy` se
+saltaría la mitad de los inventos.
+
+### El bug que apareció al escribir esto
+
+`verificar_activo` corría el check de entidades sobre `seccion = "Logro de la Semana"`, que
+escribe el **sistema**, no el modelo — y reportaba que "Semana" no estaba en la fuente. El
+resultado era que **ningún newsletter podía publicarse, nunca**. Ningún test de M4 lo vio
+porque todos llamaban a `verificar_copy` y no a `verificar_activo`.
+
+El fix no fue agregar `seccion` a una lista de exclusión hardcodeada: esa lista es
+exactamente la que ya paró el bug del `120`, y hardcodearla se desincroniza en silencio la
+próxima vez que se agrega un campo. El fix es que **quien sabe de dónde vino cada campo es el
+generador**, así que ahora `verificar_activo` recibe `campos_del_modelo` y verifica
+exactamente eso. Un check de contenido no puede pasar por campos que no son contenido
+inventable.
+
+### El prompt y su `.format()` prohibido
+
+Los few-shot son JSON literal, y el JSON tiene llaves. Meter eso en un `.format()` convierte
+cada `{` del ejemplo en un marcador de campo y el prompt revienta con
+`KeyError: '    "titulo": "De la'` en producción. El andamiaje y los ejemplos son constantes
+que se concatenan; lo único interpolado es el texto de la persona. Hay un test que falla si
+alguien reintroduce el `.format()`.
+
+El ejemplo del brief va en el few-shot **corregido**: sin "el mejor camino" y sin subir
+"seleccionada" a "contratada". Few-shot con el ejemplo sin corregir entrena al modelo a
+inventar, y el único síntoma es que un día el output pega.
+
+### Lo que el generador no tiene
+
+- No hay sanitizador que recorte. Ver la nota de arriba.
+- No hay reintentos ni cache. `version_prompt` viaja en el resultado para que se vea cuándo se
+  mezclaron dos versiones.
+- No hay forma de curar: `curado` siempre es `False` hasta que exista M6.
 
 ---
 
@@ -415,8 +548,8 @@ eso está implementado.
 | **M1** Ingesta | loaders JSON/CSV, fuente Stack Exchange, cache offline | ✅ |
 | **M2** Análisis | sentimiento y temas con LLM, heurística como piso | ✅ |
 | **M3** Puntuación y router | fórmula ponderada + ramas, con tests | ✅ |
-| **M4** Grounding | 6 checks mecánicos + gate humano obligatorio | ✅ |
-| **M4** Activos | 3 formatos, prompts few-shot, JSON validado | |
+| **M4** Grounding | 7 checks mecánicos + gate humano obligatorio | ✅ |
+| **M4** Activos | 3 formatos, prompts few-shot, JSON validado, 0 checks propios | ✅ |
 | **M5** OCI | bucket, PAR, política IAM acotada | |
 | **M6** Interfaz | panel de curaduría Streamlit con aprobar/rechazar | |
 | **M7** Orquestación | flujo n8n sobre la API | |

@@ -653,6 +653,84 @@ def check_compromiso(copy: str, fuente: str) -> Verificacion:
     )
 
 
+#: Niveles profesionales, de menor a mayor.
+#:
+#: "senior" y "junior" estan en `VOCABULARIO_INSTITUCIONAL`, y por eso
+#: `check_entidades` NO los revisa: la lista blanca existe para que `Sr` y
+#: `Jr` no producer falsos positivos, y cumple. El costo de esa lista
+#: blanca es que el nivel del cargo de una persona con nombre propio
+#: dejo de verificarse en ningun lado, y un post podia publicar
+#: "Desarrolladora Senior" sobre alguien que la fuente dice Junior.
+#:
+#: Es el mismo bug que "seleccionada" convertida en "contratada", y es
+#: peor: el cargo junior de alguien es un hecho verificable sobre su
+#: carrera, y publicarlo inflado no se ve como publicarlo inflado.
+#:
+#: Asi que el nivel no se whitelistea: se COMPARA. Si el copy dice un
+#: nivel, el fuente tiene que decir el mismo.
+NIVELES_PROFESIONALES: dict[str, int] = {
+    "trainee": 0,
+    "practicante": 0,
+    "junior": 1,
+    "semi senior": 2,
+    "senior": 3,
+    "principal": 4,
+    "staff": 4,
+    "lead": 4,
+    "head": 5,
+    "director": 5,
+}
+
+
+def _niveles(texto: str) -> set[str]:
+    """Los marcadores de nivel que aparecen como palabras sueltas."""
+    texto_n = _normalizar(texto)
+    return {
+        palabra
+        for palabra in NIVELES_PROFESIONALES
+        if re.search(r"\b" + re.escape(palabra) + r"\b", texto_n)
+    }
+
+
+def check_profesional(copy: str, fuente: str) -> Verificacion:
+    """El nivel del cargo no se cambia, en ninguna direccion.
+
+    Se comparan los conjuntos, no solo "el copy no puede subir". Bajar
+    tambien es un hecho falso: decir que alguien es junior cuando la
+    fuente dice senior es una afirmacion inexacta sobre una carrera real,
+    y el impacto reputacional es el mismo con el signo cambiado.
+
+    El trade-off, dicho explicitamente: "reunion con el equipo senior"
+    es un falso positivo, porque la fuente no menciona ningun nivel. Se
+    acepta a proposito. Un hallazgo de mas cuesta que un humano mire
+    una frase; un cargo inflado en un post con nombre propio no se ve,
+    y ese es el costo que este modulo existe para evitar.
+    """
+    del_copy = _niveles(copy)
+    if not del_copy:
+        return Verificacion("nivel profesional", ok=True)
+    del_fuente = _niveles(fuente)
+    nuevos = del_copy - del_fuente
+    if not nuevos:
+        return Verificacion("nivel profesional", ok=True)
+    if not del_fuente:
+        return Verificacion(
+            "nivel profesional",
+            ok=False,
+            hallazgos=[
+                f"el post dice {sorted(nuevos)} y la fuente no dice ningun "
+                "nivel: es un cargo nuevo sobre alguien real"
+            ],
+        )
+    return Verificacion(
+        "nivel profesional",
+        ok=False,
+        hallazgos=[
+            f"el post dice {sorted(nuevos)} y la fuente dice {sorted(del_fuente)}"
+        ],
+    )
+
+
 def check_ordinales(copy: str, fuente: str) -> Verificacion:
     nuevos = ordinales_en(copy) - ordinales_en(fuente)
     if not nuevos:
@@ -802,7 +880,7 @@ def corpus_fuente(fuente: Interaccion) -> str:
 
 
 def verificar_copy(copy: str, fuente: Interaccion | str, autor: str = "") -> InformeGrounding:
-    """Pasa UN texto generado por los seis checks.
+    """Pasa UN texto generado por los siete checks.
 
     `fuente` acepta el `Interaccion` entero o solo el texto. Aceptar los
     dos evita que el llamador tenga que acordarse de extraer `.texto` y
@@ -822,6 +900,7 @@ def verificar_copy(copy: str, fuente: Interaccion | str, autor: str = "") -> Inf
             check_cifras(copy, texto_fuente),
             check_entidades_texto(copy, texto_fuente, nombre_autor),
             check_compromiso(copy, texto_fuente),
+            check_profesional(copy, texto_fuente),
             check_ordinales(copy, texto_fuente),
             check_superlativos(copy, texto_fuente),
             check_citas(copy, texto_fuente),
@@ -830,39 +909,56 @@ def verificar_copy(copy: str, fuente: Interaccion | str, autor: str = "") -> Inf
     )
 
 
-def campos_textuales(activo: BaseModel) -> dict[str, str]:
+def campos_textuales(
+    activo: BaseModel, *, campos: Sequence[str] | None = None
+) -> dict[str, str]:
     """Los campos de texto de un activo, sin metadatos.
 
     Se leen del MODELO y no de un dict porque los tres activos tienen
     campos distintos y distintos campos numericos. Hardcodear la lista
     de campos en el generador es como aparecio `120` en
-    `potencial_engagement`: una campo que el generador no conoce lo
+    `potencial_engagement`: un campo que el generador no conoce lo
     inventa.
+
+    `campos` es la lista de campos que escribio el MODELO, y existe
+    porque este modulo se equivoco al adivinarlo. Sin el parametro,
+    `seccion = "Logro de la Semana"` -- que escribe el SISTEMA, con
+    precision para que el modelo no lo escriba -- pasaba por el check de
+    entidades y(reportaba) que "Semana" no estaba en la fuente. Ningun
+    newsletter podia publicarse, y ningun test de M4 lo vio porque todos
+    llamaban a `verificar_copy` y no a esta funcion.
+
+    La lesson es la de siempre: un check de contenido no puede pasar
+    por campos que NO son contenido inventable. Por defecto (`None`) se
+    toman todos los de texto, que es lo comodo para inspeccionar un
+    activo a mano.
     """
-    exclude = {
-        "confianza", "curado", "fuentes", "hashtags", "canal_recomendado",
-        "potencial_engagement",
-    }
-    campos: dict[str, str] = {}
+    permitidos = set(campos) if campos is not None else None
+    texto: dict[str, str] = {}
     for nombre, definicion in type(activo).model_fields.items():
         if definicion.annotation is not str:
             continue
-        if nombre in exclude:
+        if permitidos is not None and nombre not in permitidos:
             continue
         valor = getattr(activo, nombre, None)
         if isinstance(valor, str) and len(valor) >= 3:
-            campos[nombre] = valor
-    return campos
+            texto[nombre] = valor
+    return texto
 
 
-def verificar_activo(activo: BaseModel, fuente: Interaccion) -> InformeGrounding:
-    """Pasa TODOS los campos de texto del activo, mas sus hashtags.
+def verificar_activo(
+    activo: BaseModel,
+    fuente: Interaccion,
+    *,
+    campos_del_modelo: Sequence[str] | None = None,
+) -> InformeGrounding:
+    """Pasa los campos de texto del MODELO, mas los hashtags.
 
     Los hashtags van por un camino distinto y no son un check: son
     encuadre, se separan y se reportan como marcos. Un activo sin
     hashtags -- el newsletter y el FAQ no tienen -- no falla por eso.
     """
-    textos = campos_textuales(activo)
+    textos = campos_textuales(activo, campos=campos_del_modelo)
     if not textos:
         raise ValueError(f"{type(activo).__name__} no tiene texto para verificar")
 

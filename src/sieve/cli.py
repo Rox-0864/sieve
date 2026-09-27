@@ -27,7 +27,7 @@ from sieve.ingestion import (
     cargar_json,
     guardar_json,
 )
-from sieve.models import LoteComunidad
+from sieve.models import ActivosGenerados, LoteComunidad
 
 
 def _cmd_ingest(args: argparse.Namespace) -> int:
@@ -217,6 +217,130 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_generar(args: argparse.Namespace) -> int:
+    """Genera activos desde un lote YA analizado, e imprime el veredicto.
+
+    A diferencia de `analyze`, aca no hay heuristica: la generacion sin
+    modelo no existe. Un fallback que devuelve "texto generico" para no
+    devolver nada es la forma mas comun de que un pipeline termine
+    publicando placeholders.
+
+    Dos cosas que este comando NO hace, y dice en pantalla:
+
+    - No publica. Escribe los activos con `curado: false` y aclara que
+      ninguno es publicable, porque la curaduria es obligatoria y el
+      panel todavia no existe (M6). Un comando que deja el archivo a un
+      `cat` de distancia sin aclarar eso es una bomba de reputacion.
+    - No recalcula el analisis. Lee el que ya esta en el lote, para que
+      el activo y el puntaje salgan del mismo analisis. Volver a correr
+      `analyze` puede dar OTRO numero, porque el modelo en CPU no es
+      determinista, y un activo de un analisis con un puntaje de otro
+      lote es un activo que nadie puede auditar.
+    """
+    ruta = Path(args.ruta)
+    if not ruta.exists():
+        print(f"error: no existe {ruta}", file=sys.stderr)
+        return 1
+
+    lote = cargar_json(ruta)
+    if not lote.analisis:
+        print(
+            "error: el lote no tiene analisis. Corre `sieve analyze --provider "
+            "ollama` primero:\n  la generacion lee el analisis, no lo recalcula.",
+            file=sys.stderr,
+        )
+        return 1
+
+    from sieve.analysis.base import ResultadoAnalisis
+    from sieve.analysis.providers import construir_proveedor
+    from sieve.generation.assets import ErrorDeGeneracionError, GeneradorActivos
+
+    proveedor = construir_proveedor(args.provider, modelo=args.modelo)
+    if proveedor is None or not proveedor.es_disponible():
+        print(
+            f"error: el provider '{args.provider}' no esta configurado. "
+            "La generacion no tiene fallback.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # El analisis se enlaza por `mensaje_id`, no por posicion: un lote
+    # puede traer los analisis en otro orden, y emparejarlos por indice
+    # publicaria el testimonio de una persona con el puntaje de otra.
+    por_id = {a.mensaje_id: a for a in lote.analisis if a.mensaje_id}
+    generador = GeneradorActivos(proveedor)
+    aprobados = 0
+    con_rechazo = 0
+    #: `mensaje_id` -> {formato: activo}, porque `ActivosGenerados` tiene
+    #: UN slot por formato y es la respuesta de UNA interaccion. Meter los
+    #: activos de un lote en un solo `ActivosGenerados` seria pisar los
+    #: posts de siete personas y quedarse con uno.
+    por_mensaje: dict[str, dict[str, object]] = {}
+
+    for i, interaccion in enumerate(lote.interacciones, start=1):
+        # `mensaje_id` es opcional en el contrato, y sin el no hay forma
+        # de enlazar el analisis. Sin enlace NO se genera: se adivina el
+        # analisis por posicion, y un lote con los analisis en otro orden
+        # publica el testimonio de una persona con el puntaje de otra.
+        if interaccion.mensaje_id is None:
+            print(f"  [{i}] sin mensaje_id, se salta (no se puede enlazar)")
+            continue
+        analisis = por_id.get(interaccion.mensaje_id)
+        if analisis is None:
+            print(f"  [{i}] sin analisis, se salta {interaccion.mensaje_id}")
+            continue
+        entrada = ResultadoAnalisis(
+            interaccion=interaccion, analisis=analisis, procedencia="llm"
+        )
+        for etiqueta, metodo in (
+            ("post_linkedin", generador.generar_post),
+            ("destreza_newsletter_semanal", generador.generar_newsletter),
+            ("sugerencia_contenido_faq", generador.generar_faq),
+        ):
+            try:
+                salida = metodo(entrada)
+            except ErrorDeGeneracionError as exc:
+                print(f"\n  [{i}] {etiqueta}: SIN ACTIVO ({exc})")
+                con_rechazo += 1
+                continue
+            if salida.activo is None:
+                con_rechazo += 1
+                print(f"\n  [{i}] {etiqueta}: RECHAZADO")
+                for v in salida.informe.rechazados:
+                    for h in v.hallazgos:
+                        print(f"    - {v.nombre}: {h}")
+                continue
+            aprobados += 1
+            por_mensaje.setdefault(interaccion.mensaje_id, {})[etiqueta] = (
+                salida.activo
+            )
+            print(f"\n  [{i}] {etiqueta}: {salida.informe.veredicto}")
+            if salida.campos_ignorados:
+                print(f"    campos ignorados: {list(salida.campos_ignorados)}")
+            for s in salida.informe.supuestos:
+                print(f"    supuesto: {s}")
+            for m in salida.informe.marcos:
+                print(f"    marco: {m}")
+
+    print(
+        f"\n{aprobados} activos con grounding limpio, {con_rechazo} rechazados.\n"
+        "NINGUNO es publicable: la curaduria es obligatoria y el panel (M6) "
+        "todavia no existe."
+    )
+    if args.salida:
+        # `--salida` es un PREFIJO: se escribe un `ActivosGenerados` por
+        # interaccion, que es la unidad del contrato de ONE. Un solo
+        # archivo para el lote tendria que meter una lista donde el
+        # documento define un objeto.
+        for mensaje_id, activos in por_mensaje.items():
+            destino = guardar_json(
+                ActivosGenerados.model_validate(activos),  # type: ignore[arg-type]
+                f"{args.salida}.{mensaje_id}.json",
+            )
+            print(f"escrito: {destino}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="sieve", description="Sieve — ingesta de conversaciones de comunidad."
@@ -249,6 +373,19 @@ def main(argv: list[str] | None = None) -> int:
     p_analyze.add_argument("--verbose", action="store_true", help="muestra cada análisis")
     p_analyze.add_argument("--salida", help="donde escribir el lote con sus análisis")
     p_analyze.set_defaults(func=_cmd_analyze)
+
+    p_gen = sub.add_parser(
+        "generar", help="genera activos desde un lote analizado (M4)"
+    )
+    p_gen.add_argument("ruta", help="lote JSON con `analisis` (salida de analyze)")
+    p_gen.add_argument("--provider", default="ollama", help="ollama (default)")
+    p_gen.add_argument("--modelo", default=None)
+    p_gen.add_argument(
+        "--salida",
+        default=None,
+        help="prefijo de salida: se escribe <prefijo>.<mensaje_id>.json",
+    )
+    p_gen.set_defaults(func=_cmd_generar)
 
     p_cache = sub.add_parser("cache", help="estado del cache")
     p_cache.add_argument("--cache-dir", default="data/cache/stackexchange")

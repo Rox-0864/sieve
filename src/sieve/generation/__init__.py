@@ -1,5 +1,12 @@
 """Generacion de activos: el modelo propone, el grounding lo cross-examina."""
 
+from sieve.generation.assets import (
+    CANAL_LINKEDIN,
+    SECCION_NEWSLETTER,
+    ErrorDeGeneracionError,
+    GeneradorActivos,
+    ResultadoGeneracion,
+)
 from sieve.generation.grounding import (
     EXPANSIONES,
     SUPUESTOS_DECLARADOS,
@@ -8,6 +15,7 @@ from sieve.generation.grounding import (
     InformeGrounding,
     Veredicto,
     Verificacion,
+    check_profesional,
     cifras_en,
     clasificar_hashtags,
     entidades_en,
@@ -21,8 +29,14 @@ from sieve.generation.grounding import (
 )
 
 __all__ = [
+    "CANAL_LINKEDIN",
     "EXPANSIONES",
+    "ErrorDeGeneracionError",
+    "GeneradorActivos",
     "InformeGrounding",
+    "ResultadoGeneracion",
+    "SECCION_NEWSLETTER",
+    "check_profesional",
     "SUPUESTOS_DECLARADOS",
     "VOCABULARIO_EDITORIAL",
     "VOCABULARIO_INSTITUCIONAL",

@@ -21,6 +21,7 @@ import pytest
 from sieve.generation.grounding import (
     VOCABULARIO_EDITORIAL,
     campos_textuales,
+    check_profesional,
     cifras_en,
     clasificar_hashtags,
     entidades_en,
@@ -64,6 +65,12 @@ BRIEF_NEWSLETTER = (
     "Mariana Souza obtuvo su primera oportunidad como Dev Jr de IA "
     "destacando proyectos desarrollados durante la formacion."
 )
+
+#: Los campos de texto que escribe el MODELO en cada activo. El resto
+#: lo pone el sistema, y `verificar_activo` no los revisa como copy.
+#: Ver `TestCamposDelSistema` en `test_assets.py` para el bug que hizo
+#: falta explicitar esto.
+POST = ("titulo", "copy")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -291,7 +298,7 @@ def test_un_reporte_aprobado_no_es_un_reporte_vacio() -> None:
     """
     informe = verificar_copy("Felicitaciones, Mariana!", BRIEF_FUENTE)
     assert informe.verificaciones
-    assert len(informe.verificaciones) == 6
+    assert len(informe.verificaciones) == 7
 
 
 def test_el_informe_dice_que_chequear_fallo() -> None:
@@ -356,7 +363,7 @@ def test_el_activo_se_verifica_campo_por_campo() -> None:
         canal_recomendado="LinkedIn Oficial",
         potencial_engagement="Alto",
     )
-    informe = verificar_activo(activo, BRIEF_FUENTE)
+    informe = verificar_activo(activo, BRIEF_FUENTE, campos_del_modelo=POST)
     nombres = [v.nombre for v in informe.rechazados]
     assert "copy/superlativos" in nombres
     assert "#TalentosTech" in informe.marcos
@@ -370,7 +377,10 @@ def test_un_activo_limpio_pasa() -> None:
         canal_recomendado="LinkedIn Oficial",
         potencial_engagement="Alto",
     )
-    assert verificar_activo(activo, BRIEF_FUENTE).rechazados == []
+    assert (
+        verificar_activo(activo, BRIEF_FUENTE, campos_del_modelo=POST).rechazados
+        == []
+    )
 
 
 def test_el_potential_de_engagement_lo_frena_el_tipo() -> None:
@@ -397,7 +407,9 @@ def test_el_newsletter_no_tiene_hashtags_y_no_falla_por_eso() -> None:
         titular="Felicitaciones a Mariana",
         resumen="Mariana construyo con LangChain y OCI en su portfolio",
     )
-    informe = verificar_activo(activo, BRIEF_FUENTE)
+    informe = verificar_activo(
+        activo, BRIEF_FUENTE, campos_del_modelo=("titular", "resumen")
+    )
     assert informe.marcos == []
 
 
@@ -413,7 +425,10 @@ def test_el_faq_solo_deriva() -> None:
         origen="Duda planteada en el canal de soporte",
         status="derivado_a_mentoria",
     )
-    assert verificar_activo(activo, BRIEF_FUENTE).rechazados == []
+    assert (
+        verificar_activo(activo, BRIEF_FUENTE, campos_del_modelo=("tema",)).rechazados
+        == []
+    )
 
 
 def test_los_metadatos_no_se_verifican_como_texto() -> None:
@@ -422,6 +437,13 @@ def test_los_metadatos_no_se_verifican_como_texto() -> None:
     Un activo con un canal inventado pasaria el check de entidades si se
     verificaran como texto, y 'LinkedIn Oficial' no es una entidad
     inventada: lo pone el sistema, no el modelo.
+
+    Y no es solo un caso: `seccion = "Logro de la Semana"` hacia lo
+    mismo, y ese fue un bug real que dejo a todos los newsletters sin
+    poder publicarse. Por eso los campos a verificar los declara quien
+    sabe de donde vino cada uno -- el generador -- y no una lista
+    hardcodeada acá, que es la forma de que se desincronice en
+    silencio la proxima vez que se agrega un campo.
     """
     activo = PostLinkedin(
         titulo="Felicitaciones, Mariana",
@@ -430,7 +452,44 @@ def test_los_metadatos_no_se_verifican_como_texto() -> None:
         canal_recomendado="LinkedIn Oficial",
         potencial_engagement="Alto",
     )
-    assert set(campos_textuales(activo)) == {"titulo", "copy"}
+    assert set(campos_textuales(activo, campos=POST)) == {"titulo", "copy"}
+    # Sin el parametro se toman todos los de texto: es el default comodo
+    # para mirar un activo a mano, y el que hace visible el problema en
+    # vez de esconderlo.
+    assert "canal_recomendado" in campos_textuales(activo)
+
+
+def test_el_nivel_del_cargo_no_se_puede_cambiar() -> None:
+    """El bug que aparecio al escribir el generador, no antes.
+
+    'senior' y 'junior' estan en `VOCABULARIO_INSTITUCIONAL` para que
+    `Sr` y `Jr` no producing falsos positivos, y cumplen. El costo es
+    que el nivel del cargo dejo de verificarse en ningun lado, y un post
+    podia publicar 'Desarrolladora Senior' sobre alguien que la fuente
+    dice Junior. Es el mismo bug que 'seleccionada' convertida en
+    'contratada', y peor: el cargo de alguien es un hecho verificable y
+    publicarlo inflado no se ve como publicarlo inflado.
+    """
+    fuente_junior = Interaccion(
+        id="j",
+        autor="Mariana Souza",
+        canal="LinkedIn",
+        texto="Fue seleccionada para el puesto de Desarrolladora Junior de IA.",
+        fecha="2026-01-15",
+        mensaje_id="j1",
+    )
+    assert not check_profesional(
+        "Mariana fue contratada como Desarrolladora Senior de IA",
+        fuente_junior.texto,
+    ).ok
+    assert check_profesional(
+        "Mariana fue seleccionada como Desarrolladora Junior de IA",
+        fuente_junior.texto,
+    ).ok
+    # Y en ninguna direccion: bajar tambien es un hecho falso.
+    assert not check_profesional(
+        "Mariana es Desarrolladora Trainee de IA", fuente_junior.texto
+    ).ok
 
 
 # ═══════════════════════════════════════════════════════════════════
