@@ -292,7 +292,122 @@ los firme.
 
 ---
 
-## Estado
+---
+
+## Cómo evitamos los inventos (M4)
+
+### El problema, medido
+
+Una llamada a `qwen2.5:3b`, una fuente de 159 caracteres, cinco problemas:
+
+| Qué inventó | ¿Lo atrapa algo hoy? |
+|---|---|
+| `potencial_engagement: 120` | **Sí, el tipo.** `Literal["Alto","Medio","Bajo"]` |
+| Los 5 hashtags en **un solo string** | **No.** Pasa `list[str]` con un elemento |
+| `#Emprendimiento`, `#TrabajoDeInnovacion` | **No.** Ella fue dev junior, no emprendedora |
+| `"un tiempo"` en vez de `"tres meses"` | No inventó: **borró** el dato concreto |
+| `"Mi Travesía"`, `"Estudiante Solitario"` | **Imposible** mecánicamente |
+
+El primero ordenó todo lo demás:
+
+> **Todo campo que no puede estar vacío es un slot que el modelo llena con ficción.**
+
+El modelo no puso `120` por estupidez: el campo no tenía forma de decir "no lo sé". Por eso
+`potencial_engagement` es un enum de tres palabras y no un número. Quien escribió eso
+entendía el problema, y el mismo criterio se aplica al resto del copy.
+
+### El brief falla su propio ejemplo
+
+De la **misma** fuente salen dos piezas con distinto comportamiento:
+
+| | Fuente | Post del brief | Newsletter del brief |
+|---|---|---|---|
+| Estado laboral | *"queda seleccionada"* | *"acaba de ser contratada"* | *"consigue empleo"* |
+| Historial | no dice nada | no dice nada | **"su primera oportunidad"** |
+
+`seleccionada` → `contratada` → `consigue empleo`. Cada peldaño es un hecho nuevo sobre el
+empleo de una persona real, y el documento sube dos de una. "Su primera oportunidad" no está
+en ningún lado de la fuente: el historial de carrera de esa persona queda inventado de punta
+a punta.
+
+Es el caso más caro de la lista, y es invisible para un validador de esquema: un esquema
+dice "este campo es un string", no dice "este string contradice a la fuente". Y el
+fallback heurístico tiene el riesgo espejo: la fuente decía *"apenas 3 semanas
+aprendiendo"* y quedó `sentimiento=neutro`. La procedencia lo delata
+(`llm=0, heuristico=6`), pero si nadie lee la procedencia se lleva una impresión que nadie
+midió.
+
+Los dos casos son tests del proyecto, con el texto del brief como fixture.
+
+### Los seis checks
+
+El modelo propone, el código lo interroga. Se verifica **el artefacto**, nunca lo que el
+modelo declara que usó: si el gate dependiera de las declaraciones, un modelo que no
+declara nada pasaría todos los checks.
+
+| Check | Atrapa |
+|---|---|
+| `cifras` | `120`, "6 meses" si la fuente dice 3 |
+| `entidades` | `Globant`, `Nubank`, `#Emprendimiento` |
+| `escalera de compromiso` | `seleccionada` → `contratada` |
+| `ordinales` | `su primera oportunidad` |
+| `superlativos` | `el mejor camino` |
+| `citas textuales` | `"me ascendieron a directora"` |
+
+La escalera es la que más daño evita, y compara peldaños en vez de llevar una lista de
+palabras prohibidas. El estado laboral de alguien es el dato que se comparte, se cita y
+dura; y `seleccionada` y `contratada` describen situaciones parecidas, así que el modelo
+sube un nivel sin querer. Las formas van enumeradas completas (`contratad[oa]s?`,
+`contrataron`) porque el español no tiene stem: con un prefijo `"seleccionada"` no matchea
+nunca, y con un stem `"empleadora"` matchea `"empleado"`.
+
+### Tres detalles que parecen menores y no lo son
+
+**`"un camino"` no es el número 1.** La primera versión del check de cifras reportaba
+*"1 no aparece en la fuente"* sobre un post perfectamente legítimo. Un check que llora lobo
+por un artículo indefinido se desacredita solo: el humano aprende a saltear el renglón y
+con él se van los hallazgos que sí importan. `"un"`, `"una"` y `"uno"` salieron de la tabla
+de números, y `"treinta y uno"` sigue funcionando por la vía de los compuestos.
+
+**Los hashtags no son hechos.** `"#CarreraDev"` no afirma nada refutable, y el brief trae
+cuatro hashtags de los cuales dos no están en la fuente. Que uno no verificable **no** sea
+un fallo también sería mentir: sería prometer una verificación que no existe. Van como
+*marcos* al reporte, que es el trabajo del panel de curaduría.
+
+**El nombre de la persona está fundamentado aunque el texto no lo diga.** La fuente del
+brief nunca dice "Mariana": el nombre solo vive en el campo `autor`. Un check que rechaza el
+ejemplo de referencia por eso tiene plumbing roto, no criterio. El corpus de verificación es
+`autor + canal + texto`.
+
+### Qué NO se verifica, y por qué está igual
+
+`"Estudiante Solitario"` — ella no lo dijo, así que no hay nada contra qué compararlo. Las
+palabras de emoción no se verifican contra una fuente que no las contiene. Ningún regex del
+mundo resuelve eso.
+
+La defensa restante no es un filtro: es un proceso. Se reduce el espacio (un copy corto y
+pegado a la fuente deja menos lugar donde meterse) y hay un humano delante. Por eso el brief
+llama "Panel de Curaduría" a la revisión y el equipo lo dejó como *diferencial opcional*:
+con la curaduría obligatoria, este módulo es la primera capa, no la única.
+
+`InformeGrounding` dice cuál de las dos capas está en juego: `aprobado` si no hay nada que
+mirar, `aprobado_con_supuestos` si hay supuestos declarados o marcos, `rechazado` si algo no
+se sostiene. Y `puede_publicarse(informe, curado)` exige **las dos** condiciones, en una
+función y no en un campo, para que sea imposible publicar saltándosela por error.
+
+### Un límite que conviene decir en voz alta
+
+El gate vigila que no se **agregue**. No vigila que se **mantenga**: Qwen cambió `"tres
+meses"` por `"un tiempo"`, que no es una invención sino una omisión, y ningún check de
+grounding debería marcarla. El costo es que un post puede ser completamente cierto e
+inútil. Completitud y veracidad son problemas distintos, y confundirlos es como un
+fallback heurístico que no lo dice.
+
+Lo que queda pendiente, y está anotado como tal: el panel de curaduría, el generador de
+activos, y decidir si hace falta un *sanitizador* que recorte en vez de reprobar. Nada de
+eso está implementado.
+
+---
 
 | Hito | Qué produce | Listo |
 |---|---|---|
@@ -300,6 +415,7 @@ los firme.
 | **M1** Ingesta | loaders JSON/CSV, fuente Stack Exchange, cache offline | ✅ |
 | **M2** Análisis | sentimiento y temas con LLM, heurística como piso | ✅ |
 | **M3** Puntuación y router | fórmula ponderada + ramas, con tests | ✅ |
+| **M4** Grounding | 6 checks mecánicos + gate humano obligatorio | ✅ |
 | **M4** Activos | 3 formatos, prompts few-shot, JSON validado | |
 | **M5** OCI | bucket, PAR, política IAM acotada | |
 | **M6** Interfaz | panel de curaduría Streamlit con aprobar/rechazar | |
