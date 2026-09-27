@@ -1,0 +1,72 @@
+# ─── CREDENCIALES. NUNCA COMMITEAR. ───────────────────────────────────
+# Este bloque tiene que estar PRIMERO. Si un .env o una key de OCI llega
+# al repo, la credencial queda expuesta en el historial para siempre,
+# aunque despues borres el archivo. Rotar la key es la unica salida.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*_rsa
+oci_config
+config
+
+# ─── ENTORNO VIRTUAL ────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ─── CACHE DE PYTHON ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# ─── DATOS CRUDOS Y DESCARGAS ──────────────────────────────────────────
+# Los datasets de terceros son grandes y tienen licencias propias:
+# se descargan, no se versionan.
+data/raw/
+data/external/
+data/cache/
+*.parquet
+*.arrow
+*.sqlite
+*.db
+
+# ─── SALIDAS GENERADAS ──────────────────────────────────────────────────
+# Los activos de marketing se regeneran con los prompts. Versionarlos
+# ensucia el historial y genera diffs gigantes.
+output/
+outputs/
+assets/generated/
+*.mp4
+*.gif
+
+# ─── SISTEMAS OPERATIVOS Y EDITORES ─────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+!.vscode/extensions.json
+
+# ─── ARTEFACTOS ─────────────────────────────────────────────────────────
+# El PDF del enunciado es un documento de Oracle/Alura, de 4 MB, que no
+# es de este repo. Los requisitos estan documentados en README.md.
+D3CcommunityLab.pdf
+*.pdf
+
+# Restos de instalaciones tipo cmake que aparecen por accidente en repos.
+{{}}/
+{{*/}}
