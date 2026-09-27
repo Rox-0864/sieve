@@ -23,7 +23,14 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 # ═══════════════════════════════════════════════════════════════════
 #  ENTRADA
@@ -91,12 +98,80 @@ class Interaccion(BaseModel):
             return TipoInteraccion.CHAT
 
 
+class ConteoProcedencia(BaseModel):
+    """De donde salio cada analisis del lote.
+
+    Vive en el LOTE y no en `Analisis` a proposito. `Analisis` es el
+    contrato del documento ONE: lo que va al PDF. Si le colgamos
+    "este salio del LLM" o "consumo 400 tokens", el documento deja de
+    cumplir el contrato y empieza a describir como fallo el pipeline.
+
+    Pero el consumidor necesita poder preguntar antes de publicar. n8n
+    tiene que poder decidir "este lote lo hizo todo el LLM o cayo a
+    heuristica" SIN tener que reconstruirlo, porque si lo reconstruye
+    desde otro lado, un dia los dos numeros dejan de coincidir y nadie
+    sabe cual miente.
+
+    `con_citas_descartadas` va separada del conteo a proposito: un lote
+    puede decir `llm=7` y tener 2 analisis con citas inventadas. Eso NO
+    es lo mismo que 7 analisis de fiar. `ResultadoAnalisis.trustworthy`
+    exige las dos cosas: que venga del LLM y que no tenga citas
+    descartadas. Un `llm=7` sin este campo se lee como "todo bien" y no
+    lo es.
+    """
+
+    llm: int = Field(default=0, ge=0)
+    heuristico: int = Field(default=0, ge=0)
+    mixto: int = Field(default=0, ge=0)
+    con_citas_descartadas: int = Field(default=0, ge=0)
+
+    @property
+    def total(self) -> int:
+        return self.llm + self.heuristico + self.mixto
+
+    @property
+    def informado(self) -> bool:
+        """False cuando el lote no declara procedencia.
+
+        Los lotes escritos antes de que esto exista no la tienen, y van a
+        seguir leyendose: un archivo viejo tiene que seguir cargando. La
+        diferencia entre "no informado" y "informado que dice cero" es
+        justamente la que hace util el campo.
+        """
+        return self.total > 0 or self.con_citas_descartadas > 0
+
+    @property
+    def de_fiar(self) -> bool:
+        """El LLM atendio todo el lote y nadie invento una cita."""
+        return (
+            self.informado
+            and self.llm == self.total
+            and self.total > 0
+            and self.con_citas_descartadas == 0
+        )
+
+
 class LoteComunidad(BaseModel):
     """La peticion completa. Es el objeto de entrada del endpoint."""
 
     origen_comunidad: str = Field(..., min_length=1)
     periodo_referencia: str = Field(..., min_length=1)
     interacciones: list[Interaccion] = Field(..., min_length=1)
+    #: Los analisis, cuando el lote ya fue procesado.
+    #:
+    #: Vive ACA y no en un archivo aparte porque el contrato de ONE pide
+    #: que el lote salga con su analisis pegado: un consumidor que
+    #: descarga el JSON tiene que tener los dos, no tener que ir a buscar
+    #: el segundo archivo y descubrir que no existe.
+    #:
+    #: Opcional porque la ENTRADA no lo tiene: se carga una conversacion
+    #: cruda y se analiza despues. Si fuera obligatorio, la ingestion de
+    #: M1 tendria que inventar un analisis vacio para cada lote.
+    analisis: list[Analisis] = Field(default_factory=list)
+    #: De donde salio cada analisis. Opcional por el mismo motivo que
+    #: `analisis`: la entrada cruda no lo tiene. Cuando si viene, los
+    #: conteos tienen que sumar la cantidad de analisis.
+    procedencia: ConteoProcedencia = Field(default_factory=ConteoProcedencia)
 
     @field_validator("interacciones")
     @classmethod
@@ -110,6 +185,67 @@ class LoteComunidad(BaseModel):
                 f"MAX_BATCH_SIZE={settings.max_batch_size}"
             )
         return v
+
+    @model_validator(mode="after")
+    def _procedencia_cuadra(self) -> LoteComunidad:
+        """Si el lote DECLARA procedencia, esta tiene que sumar bien.
+
+        Un lote que no la declara esta perfecto: son los archivos de
+        antes de que este campo existiera, y un contrato que se rompe con
+        cada archivo viejo no es un contrato, es una bomba.
+
+        Uno que si la declara, en cambio, miente con facilidad: pega
+        `llm=7` en un lote que cayo a heuristica y el consumidor publica
+        algo derivado de un analisis que nadie leyo. La procedencia es
+        una senal de confianza; si puede mentir sin ruido, no sirve como
+        senal.
+        """
+        if not self.procedencia.informado:
+            return self
+        if self.procedencia.total != len(self.analisis):
+            raise ValueError(
+                f"procedencia declara {self.procedencia.total} analisis "
+                f"(llm={self.procedencia.llm} "
+                f"heuristico={self.procedencia.heuristico} "
+                f"mixto={self.procedencia.mixto}) pero el lote tiene "
+                f"{len(self.analisis)}"
+            )
+        if self.procedencia.con_citas_descartadas > self.procedencia.llm:
+            raise ValueError(
+                f"{self.procedencia.con_citas_descartadas} analisis con citas "
+                f"descartadas pero solo {self.procedencia.llm} del LLM: solo el "
+                "LLM puede inventar una cita"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _analisis_cuadran(self) -> LoteComunidad:
+        """Los analisis tienen que ser del lote, y en el mismo orden.
+
+        Sin esto se puede guardar un `analisis` de otro lote, o del
+        mismo lote reordenado, y el consumidor empareja por indice y
+        publica el testimonio de una persona sobre el mensaje de otra.
+        """
+        if not self.analisis:
+            return self
+        if len(self.analisis) != len(self.interacciones):
+            raise ValueError(
+                f"{len(self.analisis)} analisis para "
+                f"{len(self.interacciones)} interacciones: no emparejan"
+            )
+        for i, (analisis, interaccion) in enumerate(
+            zip(self.analisis, self.interacciones, strict=True)
+        ):
+            if (
+                analisis.mensaje_id is not None
+                and interaccion.mensaje_id is not None
+                and analisis.mensaje_id != interaccion.mensaje_id
+            ):
+                raise ValueError(
+                    f"analisis {i} es de '{analisis.mensaje_id}' pero la "
+                    f"interaccion {i} es '{interaccion.mensaje_id}'"
+                )
+        return self
 
 
 # ═══════════════════════════════════════════════════════════════════

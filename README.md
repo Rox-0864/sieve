@@ -1,183 +1,248 @@
 # Sieve
 
-> Turns raw community conversations into publish-ready content.
+> Convierte conversaciones crudas de comunidad en contenido publicable.
 
-Community teams lose their best material in the scrollback. A student lands their first
-job in `#logros-y-empleos` and it's gone in a week. Someone asks the exact question three
-people were going to ask. The words that make a good LinkedIn post already exist —
-nobody has time to go find them.
+Los equipos de comunidad pierden su mejor material en el scroll. Un estudiante consigue
+su primer empleo en `#logros-y-empleos` y desaparece en una semana. Alguien hace
+exactamente la pregunta que tres personas iban a hacer. Las palabras que harían un buen
+post de LinkedIn ya existen: nadie tiene tiempo de ir a buscarlas.
 
-Sieve reads the conversation, decides which moments are worth surfacing, and turns them
-into finished assets: a LinkedIn post, a newsletter highlight, a FAQ entry.
+Sieve lee la conversación, decide qué momentos vale la pena sacar a la superficie, y los
+convierte en activos terminados: un post de LinkedIn, undestacado de newsletter, una
+entrada de FAQ.
 
-**A sieve doesn't invent anything. It lets the valuable things through.**
+**Un tamiz no inventa nada. Deja pasar lo valioso.**
 
 ---
 
-## Architecture
+## Arquitectura
 
-Seven stages. Each one is a separate module, separately testable, and none of them knows
-anything about the next one's internals.
+Siete etapas. Cada una es un módulo aparte, testeable por separado, y ninguna sabe nada
+de los detalles internos de la siguiente.
 
 ```
-   ① INGEST ──────►  ② NORMALIZE ──────►  ③ ANALYZE ──────►  ④ SCORE
-   JSON/CSV        Pydantic schema      LLM: sentiment     Weighted formula
-   Webhook         dedupe, validate     topics, signals    (explainable)
+   ① INGESTA ──────►  ② NORMALIZAR ──────►  ③ ANALIZAR ──────►  ④ PUNTUAR
+   JSON/CSV         esquema Pydantic      LLM: sentimiento   fórmula ponderada
+   Webhook          dedupe, validación    temas, señales     (explicable)
                                     │
                                     ▼
-   ⑦ PUBLISH ◄── ⑥ GENERATE ◄── ⑤ ROUTER ◄──────────────────┘
-   OCI Object      one prompt per      conditional
-   Storage         channel + few-shot  branch
+   ⑦ PUBLICAR ◄──  ⑥ GENERAR ◄──  ⑤ ENRUTAR ◄──────────────────┘
+   OCI Object       un prompt por         rama
+   Storage          canal + few-shot      condicional
 ```
 
-**Why domain logic lives in Python, not in n8n.** n8n is the trigger and the glue
-(`Webhook → HTTP → IF → OCI → Response`). The logic lives in Python because logic needs
-diffs, unit tests, and stack traces. A workflow is a single opaque JSON blob: you cannot
-review it, and you cannot test the conditional branch. The project brief explicitly
-allows `n8n, Python, or equivalents` — this takes that option and keeps the repo legible.
+**Por qué la lógica de dominio vive en Python y no en n8n.** n8n es el gatillo y el
+pegamento (`Webhook → HTTP → IF → OCI → Response`). La lógica vive en Python porque la
+lógica necesita diffs, tests unitarios y stack traces. Un workflow es un único JSON
+opaco: no se puede revisar, y no se puede testear la rama condicional. El brief permite
+explícitamente `n8n, Python, or equivalents`; acá se toma esa opción y el repo queda
+legible.
 
 ---
 
-## The scoring problem, and how it gets solved
+## El problema de la puntuación, y cómo se resuelve
 
-Without ranking, the output reads like a robot wrote it. The formula is deliberately
-simple and **deliberately explainable**:
+Sin ordenar, la salida suena a que la escribió un robot. La fórmula es deliberadamente
+simple y **deliberadamente explicable**:
 
 ```
-score = 0.30 · sentiment          LLM analysis
-      + 0.25 · topic salience     how often the theme recurs in the batch
-      + 0.20 · recency            exponential decay
-      + 0.15 · achievement signal  "hired", "first job", "graduated"…
-      + 0.10 · engagement signal  length, questions, reaction count
+score = 0.30 · sentimiento         análisis LLM
+      + 0.25 · saliencia de tema    cuántas veces vuelve el tema en el lote
+      + 0.20 · recencia             decaimiento exponencial
+      + 0.15 · señal de logro       "contratado", "primer empleo", "egresado"…
+      + 0.10 · señal de interacción  longitud, preguntas, reacciones
 ```
 
-Explainable beats clever. In a demo you can point at a message and say *"it scored 0.82
-because it's a hiring announcement and the theme 'Contratación' appears three times in
-this batch."* That's an argument from a product owner, not from an engineer.
+Explicable le gana a ingenioso. En una demo se puede señalar un mensaje y decir *"entró
+con 0.82 porque es un anuncio de contratación y el tema 'Contratación' aparece tres
+veces en este lote"*. Eso es un argumento de dueño de producto, no de ingeniero.
 
-The router then branches on it:
+Después el router ramifica sobre ese score:
 
-| Condition | Asset |
+| Condición | Activo |
 |---|---|
-| `score ≥ 0.65` **and** achievement signal high | `caso_exito` → LinkedIn post + newsletter block |
-| looks like a question **and** `score ≥ 0.35` | `faq` → tutorial / tip |
-| `score < 0.35` | `highlight` → weekly community summary |
+| `score ≥ 0.65` **y** señal de logro alta | `caso_exito` → post de LinkedIn + bloque de newsletter |
+| parece pregunta **y** `score ≥ 0.35` | `faq` → tutorial / tip |
+| `score < 0.35` | `highlight` → resumen semanal de la comunidad |
 
-Questions are detected with a cheap lexical heuristic, not the LLM. The model spends
-tokens on judgment; it doesn't spend them on `str.endswith("?")`.
+Las preguntas se detectan con una heurística léxica barata, no con el LLM. El modelo
+gasta tokens en juzgar; no los gasta en `str.endswith("?")`.
 
 ---
 
-## The contract
+## El contrato
 
-`src/sieve/models.py` is the center of the project. The ONE brief defines an exact JSON
-input and output shape; if the models don't validate against it, the deliverable isn't
-met no matter how good the generated copy is.
+`src/sieve/models.py` es el centro del proyecto. El brief de ONE define una forma exacta
+de entrada y salida en JSON; si los modelos no validan contra él, el entregable no está
+cumplido por más bueno que sea el copy generado.
 
-Pydantic turns that document into something the interpreter enforces at runtime:
+Pydantic convierte ese documento en algo que el intérprete hace cumplir en runtime:
 
 ```python
 from sieve import validar_contrato_documento
 
-respuesta = validar_contrato_documento(payload)   # raises if the shape is wrong
+respuesta = validar_contrato_documento(payload)   # levanta si la forma está mal
 ```
 
-`tests/test_contrato.py` validates against the brief's own JSON payloads, character for
-character. If the contract changes, the test breaks and names the field.
+`tests/test_contrato.py` valida contra los propios payloads JSON del brief, carácter por
+carácter. Si el contrato cambia, el test se rompe y nombra el campo.
 
 ---
 
-## Ingestion (M1)
+## Ingesta (M1)
 
-Ingestion is the stage where a project like this usually dies, and always for the same
-reason: the moment it needs the internet. So the rule here is structural.
+La ingesta es la etapa donde un proyecto como este suele morir, y siempre por lo mismo: en
+el momento en que necesita internet. Así que la regla es estructural.
 
-**Every test in this repository runs with the network blocked.** Not "uses fixtures" —
-`socket.connect` is replaced in `tests/conftest.py` and raises if anything tries to open
-a connection. A test that silently reaches a third-party API is not a test, it's a
-landmine: it passes on your machine, it fails in CI, and it can burn a rate limit that
-nobody budgeted for.
+**Todos los tests de este repo corren con la red bloqueada.** No "usan fixtures":
+`socket.connect` está reemplazado en `tests/conftest.py` y levanta si algo intenta abrir
+una conexión. Un test que en silencio le pega a una API de terceros no es un test, es una
+mina: pasa en tu máquina, falla en CI, y puede quemar un rate limit que nadie presupuestó.
 
-That guard exists because of a bug it now prevents. A test reconstructed the cache key by
-hand, it didn't match what the client generated, and instead of failing it quietly
-downloaded 100 real questions. The fix was architectural, not a patch: the HTTP call sits
-behind an injectable transport, so an offline test is a constructor argument instead of a
-promise in the docs.
+Ese guard existe por un bug que ahora previene. Un test reconstruía a mano la clave del
+cache, no coincidía con lo que generaba el cliente, y en vez de fallar bajó 100 preguntas
+reales en silencio. El arreglo fue arquitectónico, no un parche: la llamada HTTP vive
+detrás de un transporte inyectable, así que un test offline es un argumento de
+constructor y no una promesa en la documentación.
 
 ```python
 from sieve.ingestion import ClienteStackExchange, clave_de_preguntas
 
-# Pre-warm once, from a machine with network. Reads 1 request, not 100.
+# Pre-calentar una vez, desde una máquina con red. Lee 1 request, no 100.
 cliente = ClienteStackExchange()
 cliente.preguntas(paginas=1, minimo_score=1)
 
-# Everything after that is served from disk.
+# Todo lo que sigue se sirve del disco.
 cliente.preguntas(paginas=1, minimo_score=1)
 ```
 
-### Why the API and not the dump
+### Por qué la API y no el dump
 
-`es.stackoverflow` is available as a 528 MB compressed dump. This project never
-downloads it. The API returns the same fields as JSON over HTTP, costs zero disk, and the
-brief's machine has 5 GB free at 96% capacity. The dump would fill it for data the API
-gives away for free. It would also be a bad look in a portfolio repo: 528 MB of scraped
-questions sitting next to a claim about respecting data sources.
+`es.stackoverflow` está disponible como un dump comprimido de 528 MB. Este proyecto nunca
+lo baja. La API devuelve los mismos campos en JSON por HTTP, no cuesta disco, y la
+máquina del brief tiene 5 GB libres al 96% de uso. El dump lo llenaría con datos que la
+API regala. También sería mala pinta en un repo de portfolio: 528 MB de preguntas
+scrapadas al lado de un reclamo de respetar las fuentes de datos.
 
-The one hard constraint the API imposes is **300 requests per day**, advertised in the
-`quota_remaining` response header. So the client is cache-first, tracks its own quota, and
-`--cache-only` will refuse to touch the network rather than spend a request you didn't
-mean to.
+La única restricción dura que impone la API son **300 requests por día**, anunciado en el
+header `quota_remaining`. Por eso el cliente es cache-first, lleva su propia cuota, y
+`--cache-only` se niega a tocar la red antes que gastar un request que no querías gastar.
 
-### Ground truth is not a feature
+### El ground truth no es una feature
 
-`Interaccion` is what someone said. `GroundTruth` is what the platform's other humans
-concluded about it — upvotes, reply count, and `accepted_answer_id`. They are separate
-types on purpose, because conflating them is the mistake that makes a ranking system
-unfalsifiable: if the product reads the score column, it is grading its own homework.
+`Interaccion` es lo que alguien dijo. `GroundTruth` es lo que los otros humanos de la
+plataforma concluyeron sobre eso: upvotes, cantidad de respuestas, y `accepted_answer_id`.
+Son tipos separados a propósito, porque mezclarlos es el error que vuelve infalsificable
+un sistema de ranking: si el producto lee la columna de score, está calificando su propia
+tarea.
 
-`GroundTruth` is **evaluation-only**. The product never consumes it. What it buys is the
-other half of the question — not *"is my score pretty"* but *"does my score rank things
-the way people do"*. `accepted_answer_id` is about as honest a human judgment as an API
-gives you, and only 43% of Spanish Stack Overflow questions have one, which makes those
-valuable precisely because they are scarce.
+`GroundTruth` es **solo para evaluación**. El producto nunca lo consume. Lo que compra es
+la otra mitad de la pregunta — no *"¿mi score queda lindo?"* sino *"¿mi score ordena las
+cosas como lo hacen las personas?"*. `accepted_answer_id` es un juicio humano tan honesto
+como el que una API te da, y solo el 43% de las preguntas en español de Stack Overflow
+tiene una, lo que vuelve valiosas esas justamente porque son escasas.
 
-`GroundTruth.intensidad()` treats acceptance as a **floor, not a weight**. A question
-whose answer a human accepted beats a question with 100 upvotes and no accepted answer,
-no matter how the remaining terms are arranged. Getting that backwards would rank by
-popularity while claiming to rank by value.
+`GroundTruth.intensidad()` trata la aceptación como un **piso, no un peso**. Una pregunta
+cuya respuesta aceptó un humano le gana a una con 100 upvotes y sin respuesta aceptada,
+sin importar cómo se ordenen los otros términos. Al revés, se estaría ordenando por
+popularidad mientras se afirma ordenar por valor.
 
 ### CLI
 
 ```bash
-sieve ingest data/samples/lote_demo.json          # synthetic, offline
+sieve ingest data/samples/lote_demo.json          # sintético, offline
 sieve ingest exports/chat.csv --salida out.json   # CSV, delimitador autodetectado
-sieve fetch-se --paginas 2 --cache-only           # reads cache or fails, never the network
+sieve fetch-se --paginas 2 --cache-only           # lee cache o falla, nunca la red
 sieve cache --limpiar
 ```
 
-CSV delimiters are auto-detected because a comma-separated file exported by Excel in a
-Spanish locale uses `;`, and parsing that with a comma produces a single column named
-`autor;canal;texto` — a failure that surfaces three stages later, when the LLM reports
-that nobody has an author.
+Los delimitadores de CSV se autodetectan porque un archivo separado por comas exportado
+por Excel en locale español usa `;`, y parsearlo con coma produce una única columna
+llamada `autor;canal;texto` — un fallo que aparece tres etapas después, cuando el LLM
+reporta que nadie tiene autor.
 
 ---
 
-## Status
+## Análisis (M2)
 
-| Milestone | What it produces | Done |
+Cada mensaje recibe sentimiento, temas, señales de logro, detección de pregunta, relevancia
+y una razón explicada. El análisis es **opcionalmente LLM, nunca dependiente**: sin
+proveedor, corre la heurística y punto.
+
+```bash
+sieve analyze data/samples/lote_demo.json                     # heurística pura, cero red
+sieve analyze datos.json --provider ollama --modelo qwen2.5:3b # LLM local
+sieve analyze datos.json --provider ollama --salida out.json  # persiste el lote
+```
+
+### El LLM es un escalón, no el piso
+
+La degradación tiene tres escalones y baja el costo en cada uno:
+
+1. La ventana entera sale bien → se usan todos sus mensajes.
+2. Faltan mensajes → se reintentan **solo esos**, de a uno.
+3. Uno sigue faltando → heurística para ese mensaje, y el lote sigue completo.
+
+Un lote de 100 donde 40 cayeron a heurística **no es** un lote de 100 análisis con LLM: es
+otra cosa. Por eso cada resultado declara su `procedencia` y el lote persiste el conteo:
+
+```json
+"procedencia": { "llm": 7, "heuristico": 0, "mixto": 0, "con_citas_descartadas": 0 }
+```
+
+`con_citas_descartadas` va separada del conteo a propósito. Un lote puede decir `llm=7` y
+tener 2 análisis con citas inventadas: eso no es lo mismo que 7 análisis de fiar. Por eso
+el validador rechaza un lote cuya procedencia no sume, y `de_fiar` exige las dos cosas —
+que venga del LLM y que nadie haya inventado una cita.
+
+### Las citas se verifican o no existen
+
+`Analisis.citas` pide comillas textuales del mensaje. Un LLM alucina, así que toda cita se
+verifica contra el texto original antes de persistirse: si no aparece, se descarta y se
+cuenta. Una cita que no se puede verificar contra el original no puede terminar en un post
+publicado con el nombre de otra persona.
+
+### Rendimiento medido, no supuesto
+
+El modelo por defecto es `qwen2.5:3b` corriendo en Ollama. Tres corridas reales de
+**7 mensajes** en **CPU** (sin GPU), una sola llamada, ~2040 tokens:
+
+| corrida | latencia |
+|---|---|
+| 1 | 211s (3m31s) |
+| 2 | 238s (3m58s) |
+| 3 | 280s (4m40s) |
+
+El rango es ancho porque en CPU la velocidad depende de la carga de la máquina, y por eso
+el timeout es holgado en vez de ajustado al promedio: un timeout que se cae una vez de cada
+tres es peor que uno que nunca se cae, porque el promedio esconde el fallo. Con GPU el
+mismo lote baja de 5 minutos a menos de uno.
+
+El timeout de red es configurable (`LLM_TIMEOUT_SECONDS`, 900s por defecto) porque uno corto
+corta antes de que el modelo termine: peor que todo, porque se pierde el LLM y además saltea
+el error.
+
+`--modelo` existe para comparar dos modelos en la misma corrida. Comparar prompts exige
+que **solo** cambie el modelo.
+
+---
+
+## Estado
+
+| Hito | Qué produce | Listo |
 |---|---|---|
-| **M0** Foundations | repo, structure, the Pydantic contract | ✅ |
-| **M1** Ingestion | JSON/CSV loaders, Stack Exchange source, offline cache | ✅ |
-| **M2** Analysis | LLM sentiment + topics (provider-swappable) | |
-| **M3** Scoring & router | weighted formula + branches, with tests | |
-| **M4** Assets | 3 formats, few-shot prompts, validated JSON | |
-| **M5** OCI | bucket, PAR, scoped IAM policy | |
-| **M6** Interface | Streamlit curation panel with approve/reject | |
-| **M7** Orchestration | n8n flow on top of the API | |
-| **M8** Polish | README, diagram, demo, `v1.0` tag | |
+| **M0** Cimientos | repo, estructura, contrato Pydantic | ✅ |
+| **M1** Ingesta | loaders JSON/CSV, fuente Stack Exchange, cache offline | ✅ |
+| **M2** Análisis | sentimiento y temas con LLM, heurística como piso | ✅ |
+| **M3** Puntuación y router | fórmula ponderada + ramas, con tests | |
+| **M4** Activos | 3 formatos, prompts few-shot, JSON validado | |
+| **M5** OCI | bucket, PAR, política IAM acotada | |
+| **M6** Interfaz | panel de curaduría Streamlit con aprobar/rechazar | |
+| **M7** Orquestación | flujo n8n sobre la API | |
+| **M8** Pulido | README, diagrama, demo, tag `v1.0` | |
 
-Each milestone ends with something that runs end to end. No milestone is "80% of the
-module works."
+Cada hito termina en algo que corre de punta a punta. Ningún hito es "el 80% del módulo
+funciona".
 
 ---
 
@@ -188,38 +253,38 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-cp .env.example .env      # then fill in your API keys
+cp .env.example .env      # después cargar tus API keys
 
-pytest                    # contract + ingestion, fully offline
+pytest                    # contrato + ingesta + análisis, todo offline
 mypy src/sieve            # strict
 ruff check .
 ```
 
 ---
 
-## Data policy
+## Política de datos
 
-**No real community data from private platforms ever enters this repository.**
+**Ningún dato real de comunidad de plataformas privadas entra a este repositorio.**
 
-Discord and Slack messages are personal data belonging to identifiable people. Pushing
-them to a third-party LLM API is processing without consent or legal basis, and
-publishing them is worse. The dataset in `data/samples/` is entirely synthetic — fictional
-people, hand-written messages.
+Mensajes de Discord y Slack son datos personales de personas identificables. Mandarlos a
+una API de LLM de terceros es un procesamiento sin consentimiento ni base legal, y
+publicarlos es peor. El dataset en `data/samples/` es enteramente sintético — personas
+ficticias, mensajes escritos a mano.
 
-The one live source is the Stack Exchange API, on `es.stackoverflow`, because its content
-is openly licensed and its API carries the author's name, a profile link, the post link,
-and the per-post license in the response. All four are stored, and
-[`ATTRIBUTION.md`](ATTRIBUTION.md) is a real file, not a promise.
+La única fuente viva es la API de Stack Exchange, sobre `es.stackoverflow`, porque su
+contenido tiene licencia abierta y su API trae el nombre del autor, un link a su perfil,
+el link a la publicación, y la licencia por publicación en la respuesta. Las cuatro se
+guardan, y [`ATTRIBUTION.md`](ATTRIBUTION.md) es un archivo real, no una promesa.
 
 ---
 
 ## Stack
 
-Python 3.11 · Pydantic v2 · provider-agnostic LLM adapter (Gemini / OpenAI / Claude /
+Python 3.11 · Pydantic v2 · adaptador de LLM agnóstico de proveedor (Gemini / OpenAI /
 Ollama) · OCI Object Storage (Always Free) · Streamlit · n8n · pytest · Ruff · mypy
 
 ---
 
-## License
+## Licencia
 
-Code: MIT. Third-party data: see [`ATTRIBUTION.md`](ATTRIBUTION.md).
+Código: MIT. Datos de terceros: ver [`ATTRIBUTION.md`](ATTRIBUTION.md).

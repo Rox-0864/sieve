@@ -34,6 +34,19 @@ class Settings(BaseSettings):
     llm_analysis_temperature: float = 0.0
     llm_writer_temperature: float = 0.7
 
+    # Medido, no inventado. Tres corridas reales de 7 mensajes con
+    # qwen2.5:3b en CPU (sin GPU), 1 llamada, ~2040 tokens:
+    # 211s, 238s y 280s. El rango es ancho porque en CPU la velocidad
+    # depende de la carga de la maquina, y por eso el default es
+    # holgado en vez de ajustado al promedio: un timeout que cae una
+    # vez de cada tres es peor que uno que nunca cae, porque el
+    # promedio esconde el fallo.
+    #
+    # Con el default anterior de 120s el timeout cortaba SIEMPRE antes
+    # de que el modelo terminara: peor que todo, porque se perdia el
+    # LLM y encima saltaba el error. Con este, 1 llamada en vez de 8.
+    llm_timeout_seconds: float = 900.0
+
     # ─── OCI ───────────────────────────────────────────────────
     oci_config_path: str = "~/.oci/config"
     oci_profile: str = "DEFAULT"

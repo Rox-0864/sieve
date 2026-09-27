@@ -19,6 +19,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from sieve.analysis.hibrido import AnalizadorHibrido
 from sieve.ingestion import (
     ClienteStackExchange,
     CuotaAgotadaError,
@@ -124,6 +125,98 @@ def _resumen(lote: LoteComunidad) -> str:
     )
 
 
+def _cmd_analyze(args: argparse.Namespace) -> int:
+    """Analiza un lote. Heuristica por defecto; LLM solo si se pide.
+
+    El default sin LLM NO es prudencia, es una decision de que
+    `sieve analyze` se pueda correr en una maquina sin credenciales, sin
+    internet y sin querer gastar. Un comando que pega a una API
+    silenciosamente es un comando del que nadie se va a fiar despues.
+    """
+    ruta = Path(args.ruta)
+    if not ruta.exists():
+        print(f"error: no existe {ruta}", file=sys.stderr)
+        return 1
+
+    lote = cargar_csv(ruta) if ruta.suffix.lower() == ".csv" else cargar_json(ruta)
+
+    proveedor = None
+    if args.provider:
+        from sieve.analysis.providers import construir_proveedor
+
+        proveedor = construir_proveedor(args.provider, modelo=args.modelo)
+        if proveedor is None:
+            print(
+                f"error: el provider '{args.provider}' no esta soportado. "
+                "Usá 'ollama' (local, gratis) o 'openai'.",
+                file=sys.stderr,
+            )
+            return 1
+        if not proveedor.es_disponible():
+            print(
+                f"error: '{args.provider}' no esta configurado. "
+                "Para la heurística no hace falta nada: corré sin --provider.",
+                file=sys.stderr,
+            )
+            return 1
+
+    analizador = AnalizadorHibrido(proveedor)
+    resumen = analizador.analizar_lote(lote.interacciones)
+    d = analizador.ultimo_diagnostico
+
+    print(f"{resumen.total} interacciones | {lote.origen_comunidad}")
+    conteo = resumen.por_procedencia()
+    print(
+        f"  llm={conteo['llm']} heuristico={conteo['heuristico']} "
+        f"mixto={conteo['mixto']}"
+    )
+    print(
+        f"  llamadas={d.llamadas_llm} ventanas={d.ventanas} "
+        f"tokens={d.tokens} latencia={d.latencia_ms}ms"
+    )
+    if d.citas_descartadas:
+        print(f"  citas descartadas: {d.citas_descartadas}")
+    if d.errores:
+        print(f"  errores: {len(d.errores)} (primero: {d.errores[0][:80]})")
+
+    if args.verbose:
+        # `sin_proveedor` solo se imprime si se PIDIO un LLM. Sin
+        # --provider, la heuristica no es un fallback: es el camino
+        # solicitado. Decir "fallback" ahi es mentira, y entrena al
+        # usuario a ignorar la palabra.
+        pidio_llm = proveedor is not None
+        for r in resumen.resultados:
+            print(f"\n  [{r.procedencia}] {r.analisis.mensaje_id or '?'}")
+            print(
+                f"    {r.analisis.sentimiento.value} "
+                f"score={r.analisis.score_sentimiento:+.2f} "
+                f"rel={r.analisis.relevant:.2f}"
+            )
+            print(f"    {r.analisis.razon_relevante}")
+            if r.motivo_fallback and pidio_llm:
+                print(f"    fallback: {r.motivo_fallback}")
+            elif not pidio_llm:
+                print("    heurística (no se pidió LLM)")
+
+    if args.salida:
+        destino = guardar_json(LoteComunidad(
+            origen_comunidad=lote.origen_comunidad,
+            periodo_referencia=lote.periodo_referencia,
+            interacciones=lote.interacciones,
+            analisis=resumen.a_analisis(),
+            # Se persiste la procedencia, no solo se imprime. La terminal
+            # la muestra y el archivo la pierde: eso dejaba a n8n sin
+            # forma de saber si el lote es de fiar sin volver a correr el
+            # pipeline entero. Y correrlo de nuevo puede dar OTRO numero
+            # si el modelo no es determinista, que en CPU no lo es.
+            procedencia=resumen.conteo_procedencia(),
+        ), args.salida)
+        print(f"escrito: {destino}")
+        if not resumen.conteo_procedencia().de_fiar and proveedor is not None:
+            print("  aviso: el lote no es enteramente LLM o tiene citas descartadas")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="sieve", description="Sieve — ingesta de conversaciones de comunidad."
@@ -144,6 +237,18 @@ def main(argv: list[str] | None = None) -> int:
     p_fetch.add_argument("--cache-only", action="store_true", help="falla si hay que ir a la red")
     p_fetch.add_argument("--salida", help="donde escribir el lote")
     p_fetch.set_defaults(func=_cmd_fetch)
+
+    p_analyze = sub.add_parser("analyze", help="analiza un lote (heurística por defecto)")
+    p_analyze.add_argument("ruta")
+    p_analyze.add_argument(
+        "--provider",
+        choices=["ollama", "openai"],
+        help="LLM a usar. SIN este flag corre heurístico, sin red.",
+    )
+    p_analyze.add_argument("--modelo", help="nombre exacto del modelo")
+    p_analyze.add_argument("--verbose", action="store_true", help="muestra cada análisis")
+    p_analyze.add_argument("--salida", help="donde escribir el lote con sus análisis")
+    p_analyze.set_defaults(func=_cmd_analyze)
 
     p_cache = sub.add_parser("cache", help="estado del cache")
     p_cache.add_argument("--cache-dir", default="data/cache/stackexchange")
