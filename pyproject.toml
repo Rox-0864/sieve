@@ -14,6 +14,11 @@ dependencies = [
     "pydantic>=2.7",        # el contrato de datos. No negociable.
     "pydantic-settings>=2.3",
     "python-dotenv>=1.0",
+    # httpx es base, no un extra: `sieve.ingestion` lo importa a nivel de
+    # modulo y lo reexporta en su `__init__`, asi que sin el no se puede
+    # ni siquiera `import sieve.ingestion`. Una dependencia opcional que
+    # en realidad es obligatoria solo confunde a quien instala.
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
@@ -36,7 +41,6 @@ oci = [
 # Datos reales de comunidades
 data = [
     "datasets>=2.20",
-    "httpx>=0.27",
 ]
 dev = [
     "pytest>=8.2",

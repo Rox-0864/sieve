@@ -1,0 +1,48 @@
+{
+  "origen_comunidad": "Discord_Grupo_ONE_Sintetico",
+  "periodo_referencia": "Semana_04",
+  "interacciones": [
+    {
+      "autor": "Mariana Souza",
+      "canal": "#logros-y-empleos",
+      "tipo": "testimonio",
+      "texto": "Después de tres meses de estudiar solo y hacer un proyecto por semana, recién me contrataron como dev junior. El portfolio abierto me sirvió más que el título."
+    },
+    {
+      "autor": "Tomás Funes",
+      "canal": "#logros-y-empleos",
+      "tipo": "logro",
+      "texto": "Terminé mi primer proyecto en Python. Es una CLI de 120 líneas que convierte CSV a Markdown. Chiquito pero es mío."
+    },
+    {
+      "autor": "Carla Mazzucchelli",
+      "canal": "#logros-y-empleos",
+      "tipo": "duda",
+      "texto": "¿Cómo sé si un proyecto de portfolio es bueno o si es solo humo? Siento que todos publican lo mismo."
+    },
+    {
+      "autor": "Diego Alonso",
+      "canal": "#logros-y-empleos",
+      "tipo": "pregunta",
+      "texto": "¿Qué debería aprender después de Python? Hay 200 caminos posibles y termino pestañas abiertas sin avanzar."
+    },
+    {
+      "autor": "Ximena Barreiro",
+      "canal": "#logros-y-empleos",
+      "tipo": "testimonio",
+      "texto": "Mi primera contribución open source me llevó a dos entrevistas. No era un proyecto mío, era un fix de tres líneas en una librería que uso todos los días."
+    },
+    {
+      "autor": "Nicolás Ferrari",
+      "canal": "#logros-y-empleos",
+      "tipo": "logro",
+      "texto": "Llevo 30 días documentando en público con una nota diaria. Sin popularidad, pero encontré a tres personas que están aprendiendo lo mismo y ahora nos ayudamos."
+    },
+    {
+      "autor": "Sofía Rinaldi",
+      "canal": "#logros-y-empleos",
+      "tipo": "duda",
+      "texto": "Me da vergüenza mostrar mi código. Lo siento feo y prefiero no publicarlo. ¿Cómo le hacen para compartirlo sin que duela?"
+    }
+  ]
+}

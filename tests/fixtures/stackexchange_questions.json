@@ -1,0 +1,69 @@
+{
+  "backoff": 0,
+  "has_more": false,
+  "quota_max": 300,
+  "quota_remaining": 291,
+  "items": [
+    {
+      "accepted_answer_id": 18233,
+      "answer_count": 6,
+      "body": "<p>Las sentencias dinámicas son sentencias SQL que se crean como cadenas de texto (strings) y en las que se insertan/concatenan valores obtenidos de alguna fuente (normalmente proveniente del usuario), lo que puede hacer que sean vulnerables a <b>inyección SQL</b> si no se sanean las entradas, como por ejemplo:</p> <pre><code>$id_usuario = $_POST[\"id\"];\nmysql_query(\"SELECT * FROM usuarios WHERE id = '$id_usuario'\");</code></pre><p>La soluci&oacute;n es usar <em>consultas preparadas</em>:</p><pre><code>$stmt = $pdo->prepare(\"SELECT * FROM usuarios WHERE id = ?\");\n$stmt->execute([$id_usuario]);</code></pre>",
+      "content_license": "CC BY-SA 3.0",
+      "creation_date": 1358090346,
+      "is_answered": true,
+      "link": "https://es.stackoverflow.com/questions/18232/c%c3%b3mo-evitar-la-inyecci%c3%b3n-sql-en-php",
+      "owner": {
+        "account_id": 4550651,
+        "display_name": "Alvaro Montoro",
+        "link": "https://es.stackoverflow.com/users/250/alvaro-montoro",
+        "reputation": 50058,
+        "user_type": "moderator"
+      },
+      "question_id": 18232,
+      "score": 237,
+      "tags": ["php", "mysql", "sql", "seguridad", "inyecci&#243;n-sql"],
+      "title": "¿Cómo evitar la inyección SQL en PHP?",
+      "view_count": 82828
+    },
+    {
+      "accepted_answer_id": null,
+      "answer_count": 13,
+      "body": "<p>Hola, estoy aprendiendo Python y no entiendo por qué mi programa da <code>TypeError</code> al sumar. Este es el código:</p> <pre><code>def sumar(a, b):\n    return a + b\n\nprint(sumar(\"3\", 4))</code></pre><p>¿Qué estoy entendiendo mal? Soy principiante.</p>",
+      "content_license": "CC BY-SA 3.0",
+      "creation_date": 1706400000,
+      "is_answered": false,
+      "link": "https://es.stackoverflow.com/questions/79000001/typeerror-al-sumar-en-python",
+      "owner": {
+        "account_id": 99123,
+        "display_name": "preguntonta",
+        "link": "https://es.stackoverflow.com/users/99123/preguntonta",
+        "reputation": 1
+      },
+      "question_id": 79000001,
+      "score": 4,
+      "tags": ["python", "principiante", "typeerror"],
+      "title": "¿Por qué mis programas no pueden hacer cálculos aritméticos correctamente?",
+      "view_count": 1520
+    },
+    {
+      "accepted_answer_id": 79000002,
+      "answer_count": 2,
+      "body": "<p>Tengo un workflow en n8n con nodos condicionales y quiero reintentar cuando el LLM devuelve un error. <strong>¿Alguien tiene un ejemplo práctico de router?</strong> No encontré nada claro en la documentación.</p>",
+      "content_license": "CC BY-SA 3.0",
+      "creation_date": 1730000000,
+      "is_answered": true,
+      "link": "https://es.stackoverflow.com/questions/79000002/nodo-condicional-n8n-reintento",
+      "owner": {
+        "account_id": 55555,
+        "display_name": "Lucas Albuquerque",
+        "link": "https://es.stackoverflow.com/users/55555/lucas-albuquerque",
+        "reputation": 340
+      },
+      "question_id": 79000002,
+      "score": 31,
+      "tags": ["n8n", "langgraph", "workflow", "automatizaci&#243;n"],
+      "title": "Nodo condicional en n8n con reintento cuando falla el LLM",
+      "view_count": 4100
+    }
+  ]
+}

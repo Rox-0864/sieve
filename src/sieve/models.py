@@ -18,6 +18,7 @@ ruidosamente y en el borde del sistema, no tres capas mas adentro.
 
 from __future__ import annotations
 
+import warnings
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
@@ -80,11 +81,14 @@ class Interaccion(BaseModel):
         tipificacion fina la hace el LLM en la etapa de analisis. Acá
         solo se preserva el dato; no se pierde nada.
         """
+        # Todo lo que no sea texto (None, 7, [], {}) cae en CHAT. Un
+        # tipo no textual no tiene forma de ser una categoría.
+        if not isinstance(v, str):
+            return TipoInteraccion.CHAT
         try:
-            TipoInteraccion(v)
+            return TipoInteraccion(v)
         except ValueError:
             return TipoInteraccion.CHAT
-        return v
 
 
 class LoteComunidad(BaseModel):
@@ -225,16 +229,26 @@ class ActivoBase(BaseModel):
     fuentes: list[str] = Field(default_factory=list)
 
 
-class PostLinkedin(ActivoBase):
-    titulo: str = Field(..., min_length=5)
-    # `copy` es el nombre que exige el documento. Pydantic avisa de que
-    # tapa el metodo `BaseModel.copy()`, y esta bien: el contrato manda
-    # sobre la estetica de la API. El warning se silencia en
-    # pyproject.toml con un filtro explicito.
-    copy: str = Field(..., min_length=20)
-    hashtags: list[str] = Field(default_factory=list, max_length=8)
-    canal_recomendado: str
-    potencial_engagement: Literal["Alto", "Medio", "Bajo"] = "Medio"
+with warnings.catch_warnings():
+    # `copy` es el nombre que exige el documento ONE. Pydantic avisa de que
+    # tapa `BaseModel.copy()`, y esta bien: el contrato manda sobre la
+    # estetica de la API. `BaseModel.copy()` esta deprecado en Pydantic v2
+    # (`model_copy()` lo reemplaza), asi que en la practica no se pierde
+    # ninguna capacidad real. Se silencia aca, y no solo en pytest, para
+    # que importar el paquete no ensucie la salida de la CLI.
+    warnings.filterwarnings("ignore", message='Field name "copy".*', category=UserWarning)
+
+    class PostLinkedin(ActivoBase):
+        titulo: str = Field(..., min_length=5)
+        # mypy protestona en esta linea y tiene razon en que el nombre
+        # tapa `BaseModel.copy()`. El nombre lo impone el contrato del
+        # documento ONE, asi que la decision es del contrato, no mia: por
+        # abajo va la supresion puntual. En Pydantic v2 el metodo
+        # equivalente es `model_copy()`.
+        copy: str = Field(..., min_length=20)  # type: ignore[assignment]
+        hashtags: list[str] = Field(default_factory=list, max_length=8)
+        canal_recomendado: str
+        potencial_engagement: Literal["Alto", "Medio", "Bajo"] = "Medio"
 
 
 class Newsletter(ActivoBase):

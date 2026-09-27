@@ -87,12 +87,87 @@ character. If the contract changes, the test breaks and names the field.
 
 ---
 
+## Ingestion (M1)
+
+Ingestion is the stage where a project like this usually dies, and always for the same
+reason: the moment it needs the internet. So the rule here is structural.
+
+**Every test in this repository runs with the network blocked.** Not "uses fixtures" —
+`socket.connect` is replaced in `tests/conftest.py` and raises if anything tries to open
+a connection. A test that silently reaches a third-party API is not a test, it's a
+landmine: it passes on your machine, it fails in CI, and it can burn a rate limit that
+nobody budgeted for.
+
+That guard exists because of a bug it now prevents. A test reconstructed the cache key by
+hand, it didn't match what the client generated, and instead of failing it quietly
+downloaded 100 real questions. The fix was architectural, not a patch: the HTTP call sits
+behind an injectable transport, so an offline test is a constructor argument instead of a
+promise in the docs.
+
+```python
+from sieve.ingestion import ClienteStackExchange, clave_de_preguntas
+
+# Pre-warm once, from a machine with network. Reads 1 request, not 100.
+cliente = ClienteStackExchange()
+cliente.preguntas(paginas=1, minimo_score=1)
+
+# Everything after that is served from disk.
+cliente.preguntas(paginas=1, minimo_score=1)
+```
+
+### Why the API and not the dump
+
+`es.stackoverflow` is available as a 528 MB compressed dump. This project never
+downloads it. The API returns the same fields as JSON over HTTP, costs zero disk, and the
+brief's machine has 5 GB free at 96% capacity. The dump would fill it for data the API
+gives away for free. It would also be a bad look in a portfolio repo: 528 MB of scraped
+questions sitting next to a claim about respecting data sources.
+
+The one hard constraint the API imposes is **300 requests per day**, advertised in the
+`quota_remaining` response header. So the client is cache-first, tracks its own quota, and
+`--cache-only` will refuse to touch the network rather than spend a request you didn't
+mean to.
+
+### Ground truth is not a feature
+
+`Interaccion` is what someone said. `GroundTruth` is what the platform's other humans
+concluded about it — upvotes, reply count, and `accepted_answer_id`. They are separate
+types on purpose, because conflating them is the mistake that makes a ranking system
+unfalsifiable: if the product reads the score column, it is grading its own homework.
+
+`GroundTruth` is **evaluation-only**. The product never consumes it. What it buys is the
+other half of the question — not *"is my score pretty"* but *"does my score rank things
+the way people do"*. `accepted_answer_id` is about as honest a human judgment as an API
+gives you, and only 43% of Spanish Stack Overflow questions have one, which makes those
+valuable precisely because they are scarce.
+
+`GroundTruth.intensidad()` treats acceptance as a **floor, not a weight**. A question
+whose answer a human accepted beats a question with 100 upvotes and no accepted answer,
+no matter how the remaining terms are arranged. Getting that backwards would rank by
+popularity while claiming to rank by value.
+
+### CLI
+
+```bash
+sieve ingest data/samples/lote_demo.json          # synthetic, offline
+sieve ingest exports/chat.csv --salida out.json   # CSV, delimitador autodetectado
+sieve fetch-se --paginas 2 --cache-only           # reads cache or fails, never the network
+sieve cache --limpiar
+```
+
+CSV delimiters are auto-detected because a comma-separated file exported by Excel in a
+Spanish locale uses `;`, and parsing that with a comma produces a single column named
+`autor;canal;texto` — a failure that surfaces three stages later, when the LLM reports
+that nobody has an author.
+
+---
+
 ## Status
 
 | Milestone | What it produces | Done |
 |---|---|---|
 | **M0** Foundations | repo, structure, the Pydantic contract | ✅ |
-| **M1** Ingestion | JSON/CSV loaders, validated | |
+| **M1** Ingestion | JSON/CSV loaders, Stack Exchange source, offline cache | ✅ |
 | **M2** Analysis | LLM sentiment + topics (provider-swappable) | |
 | **M3** Scoring & router | weighted formula + branches, with tests | |
 | **M4** Assets | 3 formats, few-shot prompts, validated JSON | |
@@ -115,21 +190,26 @@ pip install -e ".[dev]"
 
 cp .env.example .env      # then fill in your API keys
 
-pytest                    # the contract tests
+pytest                    # contract + ingestion, fully offline
+mypy src/sieve            # strict
+ruff check .
 ```
 
 ---
 
 ## Data policy
 
-**No real community data ever enters this repository.**
+**No real community data from private platforms ever enters this repository.**
 
 Discord and Slack messages are personal data belonging to identifiable people. Pushing
 them to a third-party LLM API is processing without consent or legal basis, and
-publishing them is worse. The dataset here is `data/samples/`, entirely synthetic.
+publishing them is worse. The dataset in `data/samples/` is entirely synthetic — fictional
+people, hand-written messages.
 
-Where the project uses real public data to validate the scoring, it is anonymized,
-openly licensed, and attributed. See [`ATTRIBUTION.md`](ATTRIBUTION.md).
+The one live source is the Stack Exchange API, on `es.stackoverflow`, because its content
+is openly licensed and its API carries the author's name, a profile link, the post link,
+and the per-post license in the response. All four are stored, and
+[`ATTRIBUTION.md`](ATTRIBUTION.md) is a real file, not a promise.
 
 ---
 
