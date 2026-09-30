@@ -29,6 +29,8 @@ import socket
 
 import pytest
 
+from sieve.perfil import NOMBRE_POR_DEFECTO, PerfilOrganizacion, cargar_perfil
+
 _VARS_SENSIBLES = (
     "OPENAI_API_KEY",
     "COHERE_API_KEY",
@@ -73,3 +75,27 @@ def entorno_aislado(monkeypatch: pytest.MonkeyPatch) -> None:
     # de cache temporal evita escribir en data/cache/ durante la suite.
     monkeypatch.setenv("SIEVE_CACHE_DIR", ".cache-test")
     monkeypatch.setenv("HF_HOME", os.devnull)
+
+
+# ── Perfil de organizacion ────────────────────────────────────────────
+#
+# El motor no sabe de ninguna organizacion. Los tests que afirman
+# algo sobre el brief de ONE necesitan el perfil de ONE explicito; los
+# que afirman comportamiento del motor usan el perfil neutro, que es
+# el default.
+#
+# Un test que pasa con el perfil de ONE sin pedirlo esta probando datos
+# de cliente en un modulo que deberia ser agnostico. Por eso el
+# fixture es explicito y no hay atajo.
+
+
+@pytest.fixture
+def perfil_one() -> PerfilOrganizacion:
+    """El perfil de marca de ONE, cargado desde `perfiles/one.toml`."""
+    return cargar_perfil("one")
+
+
+@pytest.fixture
+def perfil_neutro() -> PerfilOrganizacion:
+    """Perfil que no sabe de nadie. El default del motor."""
+    return cargar_perfil(NOMBRE_POR_DEFECTO)

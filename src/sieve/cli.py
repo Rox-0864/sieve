@@ -28,6 +28,12 @@ from sieve.ingestion import (
     guardar_json,
 )
 from sieve.models import ActivosGenerados, LoteComunidad
+from sieve.perfil import (
+    NOMBRE_POR_DEFECTO,
+    cargar_perfil,
+    listar_perfiles,
+    verificar_perfil,
+)
 
 
 def _cmd_ingest(args: argparse.Namespace) -> int:
@@ -255,6 +261,15 @@ def _cmd_generar(args: argparse.Namespace) -> int:
     from sieve.analysis.providers import construir_proveedor
     from sieve.generation.assets import ErrorDeGeneracionError, GeneradorActivos
 
+    # El perfil se carga ANTES de gastar un token en el modelo: si el
+    # nombre esta mal, lo barato es el error de nombre, no un post
+    # entero generado con el perfil equivocado.
+    try:
+        perfil = cargar_perfil(args.perfil)
+    except FileNotFoundError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
     proveedor = construir_proveedor(args.provider, modelo=args.modelo)
     if proveedor is None or not proveedor.es_disponible():
         print(
@@ -268,7 +283,7 @@ def _cmd_generar(args: argparse.Namespace) -> int:
     # puede traer los analisis en otro orden, y emparejarlos por indice
     # publicaria el testimonio de una persona con el puntaje de otra.
     por_id = {a.mensaje_id: a for a in lote.analisis if a.mensaje_id}
-    generador = GeneradorActivos(proveedor)
+    generador = GeneradorActivos(proveedor, perfil)
     aprobados = 0
     con_rechazo = 0
     #: `mensaje_id` -> {formato: activo}, porque `ActivosGenerados` tiene
@@ -341,6 +356,38 @@ def _cmd_generar(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_perfiles(args: argparse.Namespace) -> int:
+    """Lista los perfiles y, sobre todo, lo que cada uno NO sabe.
+
+    El comando existe por la parte fea: un perfil con supuestos
+    silenciosos es un perfil que miente sobre lo que sabe. Imprimir los
+    huecos en pantalla es la forma mas barata de que no se conviertan
+    en un supuesto invisible.
+    """
+    disponibles = listar_perfiles()
+    print(f"perfil por defecto: {NOMBRE_POR_DEFECTO} (no sabe de nadie)")
+    if not disponibles:
+        print("no hay perfiles en perfiles/*.toml")
+        return 0
+
+    for nombre in disponibles:
+        perfil = cargar_perfil(nombre)
+        print(f"\n{nombre} — {perfil.descripcion}")
+        print(
+            f"  identidad: {perfil.identidad.sector} | "
+            f"{len(perfil.institutional_palabras)} palabras | "
+            f"{len(perfil.supuestos)} supuestos"
+        )
+        huecos = verificar_perfil(perfil)
+        if not huecos:
+            print("  sin huecos declarados")
+        else:
+            print("  NO SABE Todavia:")
+            for hueco in huecos:
+                print(f"    - {hueco}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="sieve", description="Sieve — ingesta de conversaciones de comunidad."
@@ -385,7 +432,21 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="prefijo de salida: se escribe <prefijo>.<mensaje_id>.json",
     )
+    p_gen.add_argument(
+        "--perfil",
+        default=NOMBRE_POR_DEFECTO,
+        help=(
+            "perfil de organizacion (default: %(default)s, que no sabe de "
+            "nadie). Ver `sieve perfiles` para los disponibles."
+        ),
+    )
     p_gen.set_defaults(func=_cmd_generar)
+
+    p_perfiles = sub.add_parser(
+        "perfiles",
+        help="lista los perfiles de organizacion y lo que cada uno no sabe",
+    )
+    p_perfiles.set_defaults(func=_cmd_perfiles)
 
     p_cache = sub.add_parser("cache", help="estado del cache")
     p_cache.add_argument("--cache-dir", default="data/cache/stackexchange")

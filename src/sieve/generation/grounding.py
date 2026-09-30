@@ -74,6 +74,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from sieve.models import Interaccion
+from sieve.perfil import NOMBRE_POR_DEFECTO, PerfilOrganizacion, cargar_perfil
 
 # ═══════════════════════════════════════════════════════════════════
 #  NORMALIZACION
@@ -215,61 +216,75 @@ def ordinales_en(texto: str) -> set[str]:
 #  ENTIDADES
 # ═══════════════════════════════════════════════════════════════════
 
-#: Siglas y expansiones legitimas. El documento usa "OCI" en la fuente y
-#: "Oracle Cloud Infrastructure" en el post: no es una invencion, es la
-#: misma cosa escrita distinto. Sin este mapa, el check de entidades
-#: rechazaria el ejemplo oficial del propio brief.
-EXPANSIONES: dict[str, str] = {
-    "oracle cloud infrastructure": "oci",
-    "oracle cloud": "oci",
-    "infraestructura oracle cloud": "oci",
-    "oraclecloud": "oci",
-    "inteligencia artificial": "ia",
-    "inteligenciaartificial": "ia",
-    "aprendizaje automatico": "ml",
-    "aprendizajeautomatico": "ml",
-    "machine learning": "ml",
-    "machinelearning": "ml",
-    "modelo de lenguaje": "llm",
-    "modelodelenguaje": "llm",
-    "redes neuronales": "red neuronal",
-    "redesneuronales": "red neuronal",
-    "programacion": "programacion",
-}
+# ── El conocimiento de marca, como dato ────────────────────────────────
+#
+# Todo lo que sigue vivia ACÁ, escrito a mano, mezclando tres cosas que
+# no son la misma: la identidad de una organizacion concreta, el
+# ecosistema tecnico de un sector, y reglas de escritura. El dia que
+# haya un segundo cliente, el motor mentiria sobre uno de los dos y el
+# error seria invisible: un check que rechaza un post legitimo de la
+# organizacion equivocada.
+#
+# Ahora salen del perfil. El motor sigue teniendo un default —sin el
+# cual no habria forma de testearlo— pero el default no sabe de nadie,
+# y los checks aceptan un perfil como parametro.
+#
+# Ver `sieve.perfil` y `perfiles/one.toml`.
+
+#: Perfil por defecto de este modulo: vacio de conocimiento de cliente.
+#: Los tests corren contra este. Si un test pasa con el perfil de ONE,
+#: es porque depende de un cliente y el test esta mal escrito.
+_PERFIL: PerfilOrganizacion = cargar_perfil(NOMBRE_POR_DEFECTO)
+
+#: Verificacion de arranque. Un perfil mal formado tiene que fallar al
+#: importar el modulo, no tres horas despues en produccion.
+_PERFIL.model_validate(_PERFIL.model_dump())
+
+#: Siglas y expansiones legitimas. El documento de ONE usa "OCI" en la
+#: fuente y "Oracle Cloud Infrastructure" en el post: no es una
+#: invencion, es la misma cosa escrita distinto. Sin este mapa, el
+#: check de entidades rechazaria el ejemplo oficial del propio brief.
+EXPANSIONES: dict[str, str] = dict(_PERFIL.expansiones)
 
 #: Abreviaturas que equivalen a la palabra larga. El post del brief
 #: escribe "Dev Jr" donde la fuente dice "Desarrolladora Junior": es la
 #: misma persona con el mismo puesto, no un dato nuevo. Sin este mapa
 #: el check reporta a "Jr" como una entidad inventada.
-ABREVIATURAS: dict[str, str] = {
-    "jr": "junior", "jrta": "junior", "sr": "senior", "srta": "seniorita",
-    "dev": "dev", "srjr": "senior", "tec": "tecnologico", "org": "organizacion",
-}
+ABREVIATURAS: dict[str, str] = dict(_PERFIL.abreviaturas)
 
-#: Nombres propios de la institucion y del ecosistema tecnico. No
-#: necesitan estar en la fuente: son las palabras que ya sabemos
-#: ciertas y que un revisor no deberia tener que verificar.
-VOCABULARIO_INSTITUCIONAL: frozenset[str] = frozenset({
-    "one", "oracle", "alura", "linkedin", "twitter", "discord", "telegram",
-    "n8n", "langchain", "langgraph", "python", "docker", "kubernetes",
-    "github", "git", "aws", "azure", "gcp", "cloudflare", "streamlit",
-    "fastapi", "pydantic", "postgresql", "mysql", "mongodb", "redis",
-    "openai", "anthropic", "gemini", "claude", "llama", "qwen", "ollama",
-    "cuda", "oci", "ia", "api", "llm", "sql", "html", "css", "ux", "ui",
-    "hackathon", "bootcamp", "senior", "junior", "trainee", "dev",
-    "data science", "cloud", "web", "backend", "frontend", "fullstack",
-    "generativa", "generativo", "infraestructura", "stack",
-})
+#: Nombres propios de la institucion y su stack declarado: NO
+#: necesitan estar en la fuente, porque son las palabras que ya
+#: sabemos ciertas y que un revisor no deberia tener que verificar.
+#:
+#: ACA ESTABA EL ERROR, Y ERA EL PEOR DE TODOS. La lista mezclaba la
+#: marca con el ecosistema entero, y eso hacia que `kubernetes`,
+#: `postgresql`, `openai` o `gemini` contaran como "ciertos" en un
+#: post sobre LangChain. No lo son: son nombres reales de cosas
+#: reales, pero NOMBRARLOS sigue siendo una afirmacion que necesita
+#: respaldo, y el motor la aceptaba en silencio. Ahora la lista es
+#: `perfil.institutional_palabras` y sale de `perfiles/<cliente>.toml`:
+#: la marca, el stack que la organizacion declara propio, y el
+#: encuadre. El resto del ecosistema tiene que justificarse.
+#:
+#: Deliberadamente NO existe una constante global con este nombre.
+#: Habria que definirla con el perfil neutro, que es un conjunto
+#: VACIO, y un conjunto vacio con nombre de constante se lee como "no
+#: hay palabras institucionales" cuando en realidad significa "no se
+#: donde esta la informacion". Un objeto que miente sobre lo que sabe
+#: es peor que un `AttributeError`. Para consultarlo se pasa el
+#: perfil:
+#:
+#:     verificar_copy(copy, fuente, perfil=cargar_perfil("one"))
 
 ##: Palabras que el copy de una institucion SIEMPRE capitalize y que no
 #: son entidades: "Felicitaciones, Mariana!" empieza con mayuscula y
 #: "Felicitaciones" no es una empresa. Sin esta lista el check reporta
 #: una entidad llamada "Felicitaciones" y se vuelve ruido.
 #:
-#: Aqui viven tambien las palabras de publicitaria institucional
+#: Aqui viven tambien las palabras de encuadre institucional
 #: ("talentos", "historias", "logro"). Son encuadre, no informacion: se
-#: permiten en silencio porque un post sin "nuestros talentos" no es un
-#: post de este programa. Lo que NO entra aca es nada que afirme algo
+#: permiten en silencio porque un post sin encuadre no es un post de
+#: una comunidad. Lo que NO entra aca es nada que afirme algo
 #: sobre una persona: esas van a SUPUESTOS_DECLARADOS y se reportan.
 VOCABULARIO_EDITORIAL: frozenset[str] = frozenset({
     "felicitaciones", "felicidades", "gracias", "hola", "buenos", "querida",
@@ -304,13 +319,16 @@ _RUN_CAPITALIZADO = re.compile(
 )
 
 
-def entidades_en(texto: str) -> list[str]:
+def entidades_en(
+    texto: str, perfil: PerfilOrganizacion | None = None
+) -> list[str]:
     """Runs capitalizados que no abren frase ni son menciones.
 
     Se quitan los conectores en minuscula del resultado porque no son
     parte de ningun nombre: "LangChain y Oracle" son dos entidades, no
     una que se llame "LangChain y Oracle".
     """
+    p = perfil or _PERFIL
     encontradas: list[str] = []
     for oracion in re.split(r"[.!?;:\n]+", texto):
         # En espanol todo adjetivo de posicion se escribe con mayuscula
@@ -322,7 +340,7 @@ def entidades_en(texto: str) -> list[str]:
             ).strip()
             if not run or _es_mencion(run):
                 continue
-            if _normalizar(run) in VOCABULARIO_EDITORIAL:
+            if _normalizar(run) in VOCABULARIO_EDITORIAL | p.vocabulario.autodescripcion:
                 continue
             encontradas.append(run)
     # Se deduplican conservando el orden: el reporte lista cada entidad
@@ -330,24 +348,31 @@ def entidades_en(texto: str) -> list[str]:
     return list(dict.fromkeys(encontradas))
 
 
-def _parte_respalda(parte: str, fuente_n: str, permitidas: set[str]) -> bool:
+def _parte_respalda(
+    parte: str, fuente_n: str, permitidas: set[str], perfil: PerfilOrganizacion
+) -> bool:
     """Una palabra de una entidad multi-palabra tiene respaldo."""
     if parte in permitidas or _contiene(parte, fuente_n):
         return True
-    larga = ABREVIATURAS.get(parte)
+    larga = perfil.abreviaturas.get(parte)
     return larga is not None and (larga in permitidas or _contiene(larga, fuente_n))
 
 
-def _respaldado(entidad: str, fuente_n: str, permitidas: set[str]) -> bool:
+def _respaldado(
+    entidad: str, fuente_n: str, permitidas: set[str], perfil: PerfilOrganizacion
+) -> bool:
     """La entidad se sostiene con la fuente, el vocabulario o una expansion."""
+    expansiones = perfil.expansiones
     base = _normalizar(entidad)
     if base in permitidas or _contiene(base, fuente_n):
         return True
-    expansion = EXPANSIONES.get(base)
+    expansion = expansiones.get(base)
     if expansion and _contiene(expansion, fuente_n):
         return True
-    abreviatura = ABREVIATURAS.get(base)
-    if abreviatura and (_contiene(abreviatura, fuente_n) or abreviatura in permitidas):
+    abreviatura = perfil.abreviaturas.get(base)
+    if abreviatura and (
+        _contiene(abreviatura, fuente_n) or abreviatura in permitidas
+    ):
         return True
     # Multi-palabra: todas las partes tienen que estar respaldadas. Se
     # exige TODAS y no "algunas" porque "Mariana Souza Jr" tiene dos
@@ -361,19 +386,24 @@ def _respaldado(entidad: str, fuente_n: str, permitidas: set[str]) -> bool:
     for largo in (3, 2):
         for inicio in range(len(partes) - largo + 1):
             tramo = " ".join(partes[inicio:inicio + largo])
-            base_tramo = EXPANSIONES.get(tramo)
+            base_tramo = expansiones.get(tramo)
             if base_tramo and _contiene(base_tramo, fuente_n):
                 return True
 
     return bool(partes) and all(
-        _parte_respalda(p, fuente_n, permitidas) for p in partes
+        _parte_respalda(p, fuente_n, permitidas, perfil) for p in partes
     )
 
 
-def check_entidades(copy: str, fuente: str, autor: str) -> Verificacion:
-    permitidas = set(VOCABULARIO_INSTITUCIONAL) | {_normalizar(autor)}
+def check_entidades(
+    copy: str, fuente: str, autor: str, perfil: PerfilOrganizacion | None = None
+) -> Verificacion:
+    p = perfil or _PERFIL
+    permitidas = set(p.institutional_palabras) | {_normalizar(autor)}
     fuente_n = _normalizar(fuente)
-    foundadas = [e for e in entidades_en(copy) if not _respaldado(e, fuente_n, permitidas)]
+    foundadas = [
+        e for e in entidades_en(copy, p) if not _respaldado(e, fuente_n, permitidas, p)
+    ]
     return Verificacion(
         "entidades",
         ok=not foundadas,
@@ -450,7 +480,10 @@ _ESCALERA: tuple[tuple[str, str, int], ...] = (
         r"contratando|contratar|contrataron|contrat[ée]|emplead[oa]s?|"
         r"emplea[sn]?|empleamos|emplean|empleando|emplear|ingres[oó]|"
         r"ingresamos|ingresaron|ya trabaj[oa]|comenz[oó] a trabajar|"
-        r"arranc[oó]|pasa a formar|se suma al equipo",
+        r"arranc[oó]|pasa a formar|se suma al equipo|"
+        r"(?:consigu[ei]s?|consiguen|consigui[oó]|consiguieron|conseguir)"
+        r"\s+(?:empleo|trabajo|trabajar|puesto|puestos|vacante|vacantes|"
+        r"oportunidad|oportunidades)",
         "contrato",
         4,
     ),
@@ -615,8 +648,10 @@ def check_cifras(copy: str, fuente: str) -> Verificacion:
     )
 
 
-def check_entidades_texto(copy: str, fuente: str, autor: str) -> Verificacion:
-    return check_entidades(copy, fuente, autor)
+def check_entidades_texto(
+    copy: str, fuente: str, autor: str, perfil: PerfilOrganizacion | None = None
+) -> Verificacion:
+    return check_entidades(copy, fuente, autor, perfil)
 
 
 def check_compromiso(copy: str, fuente: str) -> Verificacion:
@@ -655,19 +690,25 @@ def check_compromiso(copy: str, fuente: str) -> Verificacion:
 
 #: Niveles profesionales, de menor a mayor.
 #:
-#: "senior" y "junior" estan en `VOCABULARIO_INSTITUCIONAL`, y por eso
-#: `check_entidades` NO los revisa: la lista blanca existe para que `Sr` y
-#: `Jr` no producer falsos positivos, y cumple. El costo de esa lista
-#: blanca es que el nivel del cargo de una persona con nombre propio
-#: dejo de verificarse en ningun lado, y un post podia publicar
-#: "Desarrolladora Senior" sobre alguien que la fuente dice Junior.
+#: ANTES, "senior" y "junior" estaban en el vocabulario institucional,
+#: y por eso `check_entidades` NO los revisaba: la lista blanca
+#: existía para que `Sr` y `Jr` no produjeran falsos positivos, y
+#: cumplía. El costo de esa lista blanca era que el nivel del cargo de
+#: una persona con nombre propio dejaba de verificarse en ningún lado,
+#: y un post podía publicar "Desarrolladora Senior" sobre alguien que
+#: la fuente dice Junior.
 #:
 #: Es el mismo bug que "seleccionada" convertida en "contratada", y es
 #: peor: el cargo junior de alguien es un hecho verificable sobre su
 #: carrera, y publicarlo inflado no se ve como publicarlo inflado.
 #:
-#: Asi que el nivel no se whitelistea: se COMPARA. Si el copy dice un
-#: nivel, el fuente tiene que decir el mismo.
+#: Con el perfil, el problema quedo MEJOR y no peor: la lista blanca
+#: ya no es una constante global que alguien edita a mano, es dato del
+#: cliente, y por lo tanto la lista REAL de una organizacion no tiene
+#: por que contener "junior" ni "senior" para hacer su trabajo. El
+#: benchmark de una marca va a ser corto; el de un cargo, largo. Por eso
+#: el nivel no se whitelistea: se COMPARA. Si el copy dice un nivel,
+#: la fuente tiene que decir el mismo.
 NIVELES_PROFESIONALES: dict[str, int] = {
     "trainee": 0,
     "practicante": 0,
@@ -810,18 +851,19 @@ def separar_hashtags(tags: Iterable[str]) -> tuple[list[str], list[str]]:
 
 
 def clasificar_hashtags(
-    tags: Sequence[str], fuente: str
+    tags: Sequence[str], fuente: str, perfil: PerfilOrganizacion | None = None
 ) -> tuple[list[str], list[str]]:
     """(hashtags con respaldo, marcos editoriales)."""
+    p = perfil or _PERFIL
     fuente_n = _normalizar(fuente)
     con_respaldo: list[str] = []
     marcos: list[str] = []
     for tag in tags:
         base = _normalizar(tag.lstrip("#"))
-        expansion = EXPANSIONES.get(base)
+        expansion = p.expansiones.get(base)
         if (
             _contiene(base, fuente_n)
-            or base in VOCABULARIO_INSTITUCIONAL
+            or base in p.institutional_palabras
             or (expansion is not None and _contiene(expansion, fuente_n))
         ):
             con_respaldo.append(tag)
@@ -830,32 +872,49 @@ def clasificar_hashtags(
     return con_respaldo, marcos
 
 
-#: Supuestos de contexto sobre PERSONAS que el sistema hace, declarados.
+#: Supuestos de contexto institucional, DECLARADOS.
 #:
 #: "Nuestra estudiante" esta en el post oficial del brief y no esta en la
 #: fuente: nadie escribio que Mariana sea estudiante. Se deduce del
-#: contexto -- la comunidad es de estudiantes de ONE -- y es correcto.
+#: contexto, y el humano lo ve.
 #:
 #: La diferencia entre un supuesto y un invento no es la veracidad: es
 #: que el supuesto es el MISMO para todos los mensajes, esta escrito
 #: aca, y el humano lo ve. Un supuesto declarado y global es una regla
 #: del negocio. Un supuesto por mensaje, invisible, es fabricacion.
-SUPUESTOS_DECLARADOS: dict[str, str] = {
-    "estudiante": "los miembros de la comunidad son estudiantes del programa",
-    "estudiantes": "los miembros de la comunidad son estudiantes del programa",
-    "egresad": "los miembros de la comunidad egresaron del programa",
-    "participante": "los miembros de la comunidad participan del programa",
-}
+#:
+#: ── LA CORRECCION ────────────────────────────────────────────────────
+#: Antes cada supuesto declaraba una verdad sobre "los miembros de la
+#: comunidad" entera:
+#:
+#:     "estudiante": "los miembros de la comunidad son estudiantes"
+#:
+#: Eso es FALSO en el propio documento de ONE. El ejemplo del brief
+#: tiene a Mariana —que si dice "el proyecto del curso"— y a Lucas, que
+#: pregunta por LangGraph y no dice en ningun lado que sea estudiante.
+#: Un supuesto global sobre "los miembros" declara algo que el
+#: documento desmiente, y con el perfil eso no se puede volver a
+#: escribir: el supuesto se declara POR PALABRA, y lo que se declara es
+#: lo que esa palabra sugiere, no un hecho sobre toda una poblacion.
+#:
+#: Que la justificacion exacta la escriba la organizacion y no este
+#: modulo es el punto: son datos, en `perfiles/<cliente>.toml`.
+SUPUESTOS_DECLARADOS: dict[str, str] = dict(
+    _PERFIL.supuestos.justificaciones
+)
 
 
-def supuestos_de(copy: str, fuente: str) -> list[str]:
+def supuestos_de(
+    copy: str, fuente: str, perfil: PerfilOrganizacion | None = None
+) -> list[str]:
     """Palabras de contexto usadas sin respaldo, declaradas como supuesto."""
     fuente_n = _normalizar(fuente)
     usados = set(re.findall(r"\b[a-z]+\b", _normalizar(copy)))
+    declarados = (perfil or _PERFIL).supuestos
     return [
-        f"'{palabra}': {SUPUESTOS_DECLARADOS[palabra]}"
+        f"'{palabra}': {declarados.justificacion_de(palabra)}"
         for palabra in sorted(usados)
-        if palabra in SUPUESTOS_DECLARADOS and not _contiene(palabra, fuente_n)
+        if palabra in declarados and not _contiene(palabra, fuente_n)
     ]
 
 
@@ -879,13 +938,24 @@ def corpus_fuente(fuente: Interaccion) -> str:
     return f"{fuente.autor} {fuente.canal} {fuente.texto}"
 
 
-def verificar_copy(copy: str, fuente: Interaccion | str, autor: str = "") -> InformeGrounding:
+def verificar_copy(
+    copy: str,
+    fuente: Interaccion | str,
+    autor: str = "",
+    perfil: PerfilOrganizacion | None = None,
+) -> InformeGrounding:
     """Pasa UN texto generado por los siete checks.
 
     `fuente` acepta el `Interaccion` entero o solo el texto. Aceptar los
     dos evita que el llamador tenga que acordarse de extraer `.texto` y
     de la chance de pasar el texto equivocado.
+
+    `perfil` es el conocimiento de marca de la organizacion. Por
+    defecto se usa el perfil neutro, que no sabe de nadie: sin perfil
+    no hay forma de que "LangChain" en un post de LangChain no sea
+    reportado como entidad inventada. Ver `sieve.perfil`.
     """
+    p = perfil or _PERFIL
     if isinstance(fuente, Interaccion):
         texto_fuente = corpus_fuente(fuente)
         nombre_autor = fuente.autor
@@ -895,17 +965,20 @@ def verificar_copy(copy: str, fuente: Interaccion | str, autor: str = "") -> Inf
     if not nombre_autor and isinstance(fuente, str):
         raise ValueError("con una fuente de texto plano hace falta el autor")
 
+    verificaciones = [
+        check_cifras(copy, texto_fuente),
+        # En posicion 1 para que el orden del informe sea el de siempre.
+        check_entidades_texto(copy, texto_fuente, nombre_autor, p),
+        check_compromiso(copy, texto_fuente),
+        check_profesional(copy, texto_fuente),
+        check_ordinales(copy, texto_fuente),
+        check_superlativos(copy, texto_fuente),
+        check_citas(copy, texto_fuente),
+    ]
+
     return InformeGrounding(
-        verificaciones=[
-            check_cifras(copy, texto_fuente),
-            check_entidades_texto(copy, texto_fuente, nombre_autor),
-            check_compromiso(copy, texto_fuente),
-            check_profesional(copy, texto_fuente),
-            check_ordinales(copy, texto_fuente),
-            check_superlativos(copy, texto_fuente),
-            check_citas(copy, texto_fuente),
-        ],
-        supuestos=supuestos_de(copy, texto_fuente),
+        verificaciones=verificaciones,
+        supuestos=supuestos_de(copy, texto_fuente, p),
     )
 
 
@@ -951,20 +1024,28 @@ def verificar_activo(
     fuente: Interaccion,
     *,
     campos_del_modelo: Sequence[str] | None = None,
+    perfil: PerfilOrganizacion | None = None,
 ) -> InformeGrounding:
     """Pasa los campos de texto del MODELO, mas los hashtags.
 
     Los hashtags van por un camino distinto y no son un check: son
     encuadre, se separan y se reportan como marcos. Un activo sin
     hashtags -- el newsletter y el FAQ no tienen -- no falla por eso.
+
+    `perfil` es el mismo de `verificar_copy` y va por el mismo motivo:
+    es la UNICA puerta por la que el pipeline entra al motor, asi que si
+    esta funcion no lo acepta, un cliente no puede usar su propio
+    vocabulario y el motor le rechaza el post de su propio brief. El
+    default sigue siendo el perfil neutro, que no sabe de nadie.
     """
+    p = perfil or _PERFIL
     textos = campos_textuales(activo, campos=campos_del_modelo)
     if not textos:
         raise ValueError(f"{type(activo).__name__} no tiene texto para verificar")
 
     verificaciones: list[Verificacion] = []
     for campo, valor in textos.items():
-        for v in verificar_copy(valor, fuente).verificaciones:
+        for v in verificar_copy(valor, fuente, perfil=p).verificaciones:
             if not v.ok:
                 verificaciones.append(
                     Verificacion(
@@ -982,8 +1063,8 @@ def verificar_activo(
                 hallazgos=[f"'{mal}' no es un hashtag por item: son varios juntos"],
             )
         )
-    _, marcos = clasificar_hashtags(
-        [t for t in tags if t.startswith("#")], corpus_fuente(fuente)
+    _, marcos_hashtags = clasificar_hashtags(
+        [t for t in tags if t.startswith("#")], corpus_fuente(fuente), p
     )
 
     if not verificaciones:
@@ -992,6 +1073,6 @@ def verificar_activo(
     todos = " ".join(textos.values())
     return InformeGrounding(
         verificaciones=verificaciones,
-        supuestos=supuestos_de(todos, corpus_fuente(fuente)),
-        marcos=marcos,
+        supuestos=supuestos_de(todos, corpus_fuente(fuente), p),
+        marcos=marcos_hashtags,
     )

@@ -37,3 +37,32 @@ __all__ = [
     "TipoInteraccion",
     "validar_contrato_documento",
 ]
+
+# El perfil de organizacion se exporta desde la raiz porque es parte
+# del contrato publico: quien usa Sieve tiene que poder elegir de que
+# organizacion esta hablando.
+from sieve.perfil import (  # noqa: E402
+    NOMBRE_POR_DEFECTO,
+    Identidad,
+    PerfilOrganizacion,
+    Restricciones,
+    SupuestosDeclarados,
+    Vigilancia,
+    Vocabulario,
+    cargar_perfil,
+    listar_perfiles,
+    verificar_perfil,
+)
+
+__all__ = [
+    "NOMBRE_POR_DEFECTO",
+    "Identidad",
+    "PerfilOrganizacion",
+    "Restricciones",
+    "SupuestosDeclarados",
+    "Vigilancia",
+    "Vocabulario",
+    "cargar_perfil",
+    "listar_perfiles",
+    "verificar_perfil",
+]

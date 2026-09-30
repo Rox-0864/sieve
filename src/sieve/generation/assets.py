@@ -80,13 +80,20 @@ from sieve.models import (
     PostLinkedin,
     SugerenciaFaq,
 )
+from sieve.perfil import NOMBRE_POR_DEFECTO, PerfilOrganizacion, cargar_perfil
 
 T = TypeVar("T", bound=ActivoBase)
 
-#: El identico del brief. Vive aca y no en el prompt porque es un dato
-#: del CONTRATO: si cambia, hay que volver a generar todo.
-CANAL_LINKEDIN = "LinkedIn Oficial"
-SECCION_NEWSLETTER = "Logro de la Semana"
+#: Constantes del CONTRATO: valores que escribe el SISTEMA, nunca el
+#: modelo. Salen del perfil de la organizacion y no de aca a proposito:
+#: son un dato, y cambiar de cliente no deberia obligar a editar la
+#: logica de generacion. Ver `sieve.perfil` y `perfiles/one.toml`.
+#:
+#: El default conserva los valores del brief de ONE para que el
+#: pipeline siga funcionando sin configuracion.
+_PERFIL: PerfilOrganizacion = cargar_perfil(NOMBRE_POR_DEFECTO)
+CANAL_LINKEDIN = _PERFIL.constante("canal_recomendado", "LinkedIn Oficial")
+SECCION_NEWSLETTER = _PERFIL.constante("seccion_newsletter", "Logro de la Semana")
 
 
 class ErrorDeGeneracionError(RuntimeError):
@@ -287,8 +294,13 @@ class GeneradorActivos:
       grounding y no de la muestra.
     """
 
-    def __init__(self, proveedor: ProveedorLLM) -> None:
+    def __init__(
+        self, proveedor: ProveedorLLM, perfil: PerfilOrganizacion | None = None
+    ) -> None:
         self.proveedor = proveedor
+        #: Conocimiento de marca de la organizacion. Por defecto, el
+        #: perfil neutro: el generador no sabe de quien escribe.
+        self.perfil = perfil or _PERFIL
 
     # -- API pública ------------------------------------------------
     #
@@ -387,7 +399,10 @@ class GeneradorActivos:
 
         try:
             informe = verificar_activo(
-                activo, fuente, campos_del_modelo=spec.campos_del_modelo
+                activo,
+                fuente,
+                campos_del_modelo=spec.campos_del_modelo,
+                perfil=self.perfil,
             )
         except ValueError as exc:
             # Pasa con `SugerenciaFaq.tema = "IA"`: el contrato no pone

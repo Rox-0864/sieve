@@ -32,6 +32,7 @@ Cada campo que el modelo no escribe es un campo que no puede inventar.
 from __future__ import annotations
 
 from sieve.models import Interaccion
+from sieve.perfil import NOMBRE_POR_DEFECTO, PerfilOrganizacion, cargar_perfil
 
 #: Se versiona como en M2, para poder atribuir un output viejo a la
 #: version de prompt que lo produjo.
@@ -44,9 +45,16 @@ _VALLA = '"""'
 
 # ── El andamiaje, comun a los tres ─────────────────────────────────
 
+#: La identidad de la marca. Antes vivia aca como texto fijo y decia
+#: "una empresa de formacion tecnica", que es una generalizacion
+#: escrita por el motor y no un dato de nadie. El brief de ONE describe
+#: otra cosa: un programa educativo junto a Oracle Next Education y
+#: Alura. Que la organizacion se describa a si misma es dato suyo, y
+#: por eso sale del perfil. Ver `sieve.perfil`.
+_IDENTIDAD: PerfilOrganizacion = cargar_perfil(NOMBRE_POR_DEFECTO)
+
 _ANDamiaje = """
-Sos un redactor de una empresa de formacion tecnica. Escribis para
-comunidad, y el unico material que tenes es el texto de una persona.
+""" + _IDENTIDAD.identidad.prompt + """
 
 REGLAS, en orden de importancia:
 

@@ -339,6 +339,87 @@ midió.
 
 Los dos casos son tests del proyecto, con el texto del brief como fixture.
 
+### El perfil de la organización: el motor no sabe de quién habla
+
+Para que el check de entidades sirva de algo, el motor necesita saber qué palabras son
+institucionales **para una organización concreta**: si no, `LangChain` en un post sobre un
+proyecto de LangChain se reporta como entidad inventada, y `Felicitaciones` se reporta como
+una empresa. El motor no puede ser tonto con la marca. Pero tampoco puede saber cuál es la
+marca.
+
+Esa tensión estaba resuelta de la peor manera posible: los datos de ONE estaban escritos en
+`grounding.py` y `prompts.py`. El motor sabía que *"los miembros de la comunidad son
+estudiantes del programa"*. Eso no es una regla de grounding, es el dato de un cliente. El
+día que hubiera un segundo cliente, el motor habría mentido sobre uno de los dos, y el
+error sería invisible: un check que rechaza un post legítimo de la organización equivocada.
+
+**La regla que gobierna el diseño:**
+
+> Un supuesto institucional autoriza decir cosas sobre la **organización**. Nunca sobre una
+> **persona**.
+>
+> "Somos el programa ONE" → se puede, está escrito. — "Mariana es nuestra estudiante" → NO:
+> sale del mensaje de Mariana, no del perfil.
+
+Con eso, el conocimiento de marca pasó a ser un **dato**: `perfiles/one.toml`, cargado por
+`sieve.perfil`. Hay tres capas, y confundirlas era el error:
+
+| Capa | ¿De quién es? |
+|---|---|
+| **Contrato** (`PostLinkedin`, `destreza_newsletter_semanal`) | De ONE, legítimamente. Es su documento. |
+| **Perfil** (vocabulario, supuestos, voz, constantes) | Del cliente. Hoy: un archivo. Mañana: otro. |
+| **Motor** (los siete checks) | De nadie. No debería saber el nombre de nadie. |
+
+El invariante, verificado:
+
+```python
+copy = "…un proyecto de LangChain en OCI y Alura. Felicitaciones, Mariana!"
+
+verificar_copy(copy, fuente, perfil=cargar_perfil("por_defecto")).veredicto
+#> 'rechazado'    ← entidades: 'OCI Alura' no esta en la fuente ni en el vocabulario
+verificar_copy(copy, fuente, perfil=cargar_perfil("one")).veredicto
+#> 'aprobado'     ← "Alura" es la marca, y de ONE sabemos que es cierta
+```
+
+Mismo texto, mismo motor, veredictos distintos. El motor es genérico; ONE es un dato.
+
+**Y el perfil también declara lo que no sabe.** Un motor con supuestos silenciosos es un
+motor que miente sobre lo que sabe. `verificar_perfil()` lista los huecos, y hay seis:
+
+```
+- Si ONE autoriza decir 'nuestra estudiante' o 'nuestro estudiante'
+- Si los miembros de la comunidad son estudiantes, profesionales o ambos
+- Política de emojis: el ejemplo del brief usa cohete y aplausos
+- Si se puede afirmar 'empleo' sobre un miembro de la comunidad
+- Si 'Hackathon ONE' y 'ONE G10' son nombres publicables
+- Política de autorización para nombrar a la persona y su carrera
+```
+
+Ninguno sale del documento. Son las preguntas que hay que hacerle a ONE antes de producción,
+escritas donde el código las puede mostrar en vez de dejarlas perdidas en un ticket.
+
+#### Un error que el perfil destapó
+
+El supuesto global de `estudiante` declaraba *"los miembros de la comunidad son estudiantes
+del programa"*. **Eso es falso en el propio documento de ONE**: el ejemplo del brief tiene
+a Mariana, que sí dice *"el proyecto del curso"*, y a Lucas, que pregunta por LangGraph y no
+dice en ningún lado que sea estudiante. Un supuesto global sobre "los miembros" declara algo
+que el documento desmiente.
+
+Corregido: los supuestos se declaran **por vocablo**, y lo que declaran es lo que esa
+palabra sugiere, no un hecho sobre toda una población. Que la justificación exacta la
+escriba la organización y no este módulo es el punto: son datos, y `perfiles/one.toml` los
+marca como `[PENDIENTE]` cuando nadie los respondió.
+
+#### Y una lista que era demasiado generosa
+
+El vocabulario institucional tenía 57 palabras y mezclaba la marca con el ecosistema:
+`kubernetes`, `postgresql`, `openai`, `gemini`. Eso hacía que el motor aceptara en silencio
+que un post sobre LangChain *"compartió su proyecto con Docker"*. Son nombres reales de
+cosas reales, pero **nombrarlos sigue siendo una afirmación que necesita respaldo**. El
+perfil separa las tres clases, y el resultado son 19 palabras: la marca, el stack que la
+organización declara propio, y el encuadre. El resto del ecosistema tiene que justificarse.
+
 ### Los siete checks
 
 El modelo propone, el código lo interroga. Se verifica **el artefacto**, nunca lo que el

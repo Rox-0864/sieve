@@ -32,6 +32,7 @@ from sieve.generation.prompts import (
     construir_prompt_post_linkedin,
 )
 from sieve.models import Analisis, Interaccion, PostLinkedin
+from sieve.perfil import PerfilOrganizacion
 
 # ── El doble ───────────────────────────────────────────────────────
 
@@ -213,9 +214,27 @@ class TestGenerador:
         assert "publicacion de LinkedIn" in proveedor.prompts[0]
         assert proveedor.max_tokens == [700]
 
-    def test_el_faq_siempre_va_a_mentoria(self) -> None:
+    def test_el_faq_siempre_va_a_mentoria(
+        self, perfil_one: PerfilOrganizacion
+    ) -> None:
+        """El status lo escribe el SISTEMA, pase lo que pase.
+
+        El perfil va explicito porque `FUENTE` habla de LangChain y OCI,
+        y uno es sigla del otro: sin las expansiones del perfil el
+        grounding no resolveria "OCI" contra "Oracle Cloud
+        Infrastructure" y el activo se rechazaria por una razon que no
+        tiene que ver con lo que este test mide.
+
+        El tema usa "LangChain" y no "LangGraph" a proposito, y antes
+        usaba LangGraph: el mensaje de quien escribe habla de LangChain.
+        Cuando "LangGraph" estuvo en la lista blanca del perfil, el
+        test pasaba con una entidad sin respaldo, tapando que el tema y
+        la fuente no hablan de lo mismo. La version corregida de este
+        caso esta en `test_una_faq_sobre_una_herramienta_sin_respaldo_se_rechaza`.
+        """
         activo = GeneradorActivos(
-            ProveedorDoble(_respuesta(tema="Como reintentar un nodo en LangGraph"))
+            ProveedorDoble(_respuesta(tema="Como destacar un proyecto con LangChain")),
+            perfil_one,
         ).generar_faq(_resultado()).activo
         assert activo is not None
         # El contrato declara `listo_para_publicar` por default: el
@@ -305,12 +324,40 @@ class TestRechazos:
         assert resultado.activo is None
         assert "hashtag" in resultado.informe.resumen().lower()
 
+    def test_una_faq_sobre_una_herramienta_sin_respaldo_se_rechaza(
+        self, perfil_one: PerfilOrganizacion
+    ) -> None:
+        """El perfil NO es una lista blanca de herramientas del sector.
+
+        Este es el test que hacia falta y que no existia. Durante un
+        rato "LangGraph" estuvo en el vocabulario institucional, y tres
+        tests pasaron apoyandose en eso: ninguno se entero de que la
+        lista blanca estaba tapanando un emparejamiento equivocado
+        entre el tema de la FAQ y el mensaje que la origina.
+
+        "LangGraph" no es stack declarado de ONE. El plan de estudios
+        publico del programa nombra IA, agentes, n8n, RAG y OCI.
+        LangChain y LangGraph aparecen en el brief como el proyecto de
+        la persona, y nombrarlos sigue siendo una AFIRMACION que
+        necesita respaldo del mensaje de quien escribe.
+
+        Con el perfil de ONE de por medio --que es el caso fuerte, con
+        todas las expansiones y la marca cargadas-- el tema tiene que
+        rechazarse. Si este test falla, volvio la lista blanca.
+        """
+        resultado = GeneradorActivos(
+            ProveedorDoble(_respuesta(tema="Nodos de reintento en LangGraph")),
+            perfil_one,
+        ).generar_faq(_resultado())
+        assert resultado.activo is None
+        assert "LangGraph" in resultado.informe.resumen()
+
     def test_escribir_un_campo_del_sistema_es_rechazo_con_nombre(self) -> None:
         """El modelo no puede decidir `status` ni el canal recomendado."""
         resultado = GeneradorActivos(
             ProveedorDoble(
                 _respuesta(
-                    tema="Como reintentar un nodo en LangGraph",
+                    tema="Como destacar un proyecto con LangChain",
                     status="listo_para_publicar",
                 )
             )
@@ -318,19 +365,27 @@ class TestRechazos:
         assert resultado.activo is None
         assert "status" in resultado.informe.resumen()
 
-    def test_una_clave_de_mas_se_ignora_y_se_anota(self) -> None:
+    def test_una_clave_de_mas_se_ignora_y_se_anota(
+        self, perfil_one: PerfilOrganizacion
+    ) -> None:
         """Ruido no es motivo para descartar un activo bueno.
 
         Un check que llora lobo por una clave de mas se desacredita, y
         con el se van los rechazos que si importan.
+
+        El perfil va explicito por el mismo motivo que en la FAQ de
+        arriba: sin las expansiones, "OCI" no resolveria contra "Oracle
+        Cloud Infrastructure" en la fuente. El aserto es sobre la clave
+        de mas, no sobre el vocabulario.
         """
         resultado = GeneradorActivos(
             ProveedorDoble(
                 _respuesta(
-                    tema="Nodos de reintento en LangGraph",
+                    tema="Destacar un proyecto con LangChain",
                     imagen="prompt_de_una_imagen",
                 )
-            )
+            ),
+            perfil_one,
         ).generar_faq(_resultado())
         assert resultado.activo is not None
         assert resultado.campos_ignorados == ("imagen",)

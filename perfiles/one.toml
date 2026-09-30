@@ -1,0 +1,403 @@
+# ─────────────────────────────────────────────────────────────────────
+#  Perfil de organizacion: ONE — Programa ONE, Grupo 10
+# ─────────────────────────────────────────────────────────────────────
+#
+#  QUE ES ESTE ARCHIVO
+#
+#  Este archivo es el conocimiento de MARCA de una organizacion. Antes
+#  estaba hardcodeado en `grounding.py` y `prompts.py`, lo cual hacia dos
+#  cosas malas: el motor sabia cosas de ONE que no deberia saber, y
+#  cambiar de cliente obligaba a tocar codigo de logica.
+#
+#  Este archivo es DATOS, no codigo. El motor lo carga; no lo conoce.
+#
+#
+#  PROCEDENCIA — como distinguir lo que es hecho de lo que es opinion
+#
+#  Cada seccion declara de donde sale cada dato:
+#
+#    [brief]  Un hecho textual del documento de ONE (el PDF del brief).
+#             Citable, auditable, no se toca sin el documento.
+#    [web]    Verificado contra la documentacion PUBLICA de Oracle, de
+#             Alura y de la pagina de testimonios. Ver la seccion
+#             [verificacion] para la URL exacta de cada dato.
+#    [codigo] Venia hardcodeado antes de existir este archivo. Se
+#             conserva para no cambiar comportamiento, pero nadie lo
+#             respalda: queda pendiente de revision.
+#    [PENDIENTE] NO SE. Falta que ONE lo defina. No esta en
+#             ningun documento. Lo puse porque el motor lo necesita para
+#             no fallar, y eso es una distincion honesta, no un hecho.
+#             `verificar_perfil()` escupe estas claves.
+#
+#  LO QUE LA WEB RESOLVIO Y LO QUE NO
+#
+#  Investigar el programa en su web publica contesto cuatro de los seis
+#  huecos que esta version tenía abiertos. Y de paso CORRIGIO dos cosas
+#  que habiamos escrito mal. Un supuesto que la documentacion oficial
+#  desmiente es peor que un supuesto que no existe.
+#
+#  Resuelto por la web:
+#    1. "estudiante" NO era un supuesto mio: Oracle escribe "estudiante
+#       ONE" en su propia pagina de preguntas frecuentes.
+#    2. ONE puede hablar de "mercado laboral" y "empleabilidad": es la
+#       definicion oficial del programa, textual.
+#    3. ONE puede decir "Desarrollador (a) Junior" y "Devs Jr": es el
+#       objetivo formativo declarado, textual.
+#    4. El nombre oficial del hub de vacantes es "EmpregaONE", con R. El
+#       brief escribe "EmpleaONE" y estaba mal.
+#
+#  Corregido por la web:
+#    1. "estudiante" y "egresado" son oficiales Y DISTINTOS. Al terminar
+#       la persona pasa a AlumniONE. Decir que "los miembros de la
+#       comunidad son estudiantes" sigue siendo falso: un alumni fue
+#       estudiante y hoy no lo es. El perfil declara los dos
+#      vocablos, y por que se declaran por separado.
+#    2. El programa tiene DOS rutas (AI for Tech y AI for Business). El
+#       brief es de la primera. Confundirlas seria decir de la cohorte
+#       equivocada.
+#
+#  Sigue abierto, y solo ONE lo puede contestar:
+#    - Politica de emojis.
+#    - Si "Hackathon ONE" y "ONE G10" son nombres publicables. El
+#      documento publico ya no usa "G10": dice "Hackathon
+#      internacional" y "ONE AI Day".
+#    - Si se puede atribuir un empleo concreto a una persona concreta.
+#
+#  La regla que gobierna TODO este archivo:
+#  un supuesto institucional autoriza decir cosas sobre la
+#  ORGANIZACION. Nunca autoriza decir cosas sobre una PERSONA.
+#  "Somos el programa ONE" se puede decir porque aca esta escrito.
+#  "Mariana es nuestra estudiante" NO: eso hay que sacarlo del mensaje
+#  de Mariana, no de aca.
+#
+# ─────────────────────────────────────────────────────────────────────
+
+nombre = "ONE"
+descripcion = "Programa ONE, Grupo 10 — Oracle Next Education & Alura"
+
+# ── VERIFICACION ──────────────────────────────────────────────────────
+#
+# De donde sale cada dato. Sin esto, un perfil es una lista de palabras
+# que alguien escribio un dia, y no se distingue de un rumor.
+#
+# OJO SOBRE EL ALCANCE DE ESTA VERIFICACION: que Oracle lo publique en
+# su web es la mejor evidencia disponible, y es la que va a regir si el
+# sistema no tiene una voz mas autorizada. NO es lo mismo que ONE haya
+# firmado que su equipo de comunidad puede decirlo. La diferencia
+# importa: la web publica sobre el programa entero; una comunidad publica
+# sobre su cohorte. Por eso lo que sigue resuelve el MAYOR, y lo que
+# queda abajo marcado [PENDIENTE] es exactamente lo que solo ONE
+# responde.
+
+[verificacion]
+fuente_primaria = "https://www.oracle.com/latam/education/oracle-next-education"
+fuente_voz = "https://www.aluracursos.com/testimonios/oracle-one"
+fuente_estructura = "https://emplea.inacap.cl/agenda/actividades/ver/programa-oracle-one-ai-for-tech/11501"
+fecha = "2026-09-28"
+
+# Textuales de la fuente primaria. Comillas literales: si Oracle cambia
+# el texto, estas cuatro lineas hay que revisarlas.
+textuales = [
+    "Creado por Oracle y realizado en colaboracion con Alura, ONE es un programa de educacion y empleabilidad que forma a personas en tecnologia y las conecta con el mercado laboral con el apoyo de empresas asociadas.",
+    "Para ser un (a) estudiante ONE es necesario tener mas de 18 anos",
+    "una vez finalizadas las rutas obligatorias del curso, tendras acceso a nuestra plataforma de vacantes y podras participar de procesos selectivos en las empresas socias del programa",
+    "ONE trabaja en la capacitacion de tus habilidades tecnicas y de comportamiento para que seas un Desarrollador (a) Junior, con el conocimiento inicial necesario para desenvolverte en las mejores oportunidades de trabajo, como Devs Jr",
+]
+
+# ── IDENTIDAD ────────────────────────────────────────────────────────
+# Que se supone que es la organizacion cuando el modelo escribe en su
+# nombre. ANTES decia "una empresa de formacion tecnica", que es una
+# generalizacion mia, no de ONE: el documento describe un programa
+# educativo en conjunto con una empresa tecnologica.
+
+[identidad]
+# Definicion oficial, textual de la pagina de Oracle. No es una
+# generalizacion mia como el "empresa de formacion tecnica" que estaba
+# hardcodeado antes: estas son las palabras de Oracle sobre si mismo.
+definicion_oficial = "programa de educacion y empleabilidad que forma a personas en tecnologia y las conecta con el mercado laboral"
+sector = "formacion tecnica y comunidad de inteligencia artificial"
+# A quien le habla. El brief nombra cuatro: comunidades de aprendizaje,
+# ecosistemas de desarrolladores, empresas SaaS y creadores de contenido.
+audiencia = [
+    "comunidades de aprendizaje",
+    "ecosistemas de desarrolladores",
+    "empresas SaaS",
+    "creadores de contenido",
+]
+# La identidad que se inyecta en el prompt. Un solo lugar del codigo
+# decide como se presenta la marca ante el modelo.
+prompt = """
+Sos un redactor del Programa ONE (Grupo 10), un programa de formacion
+tecnica en inteligencia artificial que se desarrolla junto a Oracle
+Next Education y Alura. Escribis para la comunidad de ONE: personas
+que estan aprendiendo y trabajando con IA, y que comparten lo que van
+aprendiendo en canales como Discord.
+"""
+# Con quien se hace el programa. Es un hecho del documento, y explica
+# por que "Oracle" es parte de la marca y no una afirmacion inventada.
+alianzas = ["Oracle", "Alura", "FIAP"]
+
+# El programa se bifurco en dos rutas. El brief es de AI for Tech. Decir
+# algo de "AI for Business" sobre una cohorte de Tech seria
+# mezclar cohortes, y es un error de segmentacion, no de redaccion.
+rutas = ["AI for Tech", "AI for Business"]
+
+# La comunidad de graduados. Es un nombre propio oficial, y DISTINTA de
+# la comunidad de estudiantes: un alumni fue estudiante y hoy no lo es.
+comunidades = ["AlumniONE"]
+
+# ── VOCABULARIO INSTITUCIONAL ─────────────────────────────────────────
+# Palabras que son CIERTAS para esta organizacion y por eso no necesita
+# estar en la fuente del mensaje. Un revisor no deberia tener que
+# verificar "LangChain" en el post de un proyecto de LangChain.
+#
+# Dividimos en dos grupos a proposito, porque mezclarlos fue un error previo:
+#
+#   marca      = identidad de ONE. Siempre certaino.
+#   ecosistema = cosas del sector que la org PUEDE nombrar, pero que no
+#                dicen nada sobre la persona. "Kubernetes" en un post
+#                sobre LangChain sigue siendo una entidad sin respaldo.
+
+[vocabulario]
+# Nombres propios OFICIALES, textuales de la web de Oracle y Alura.
+# Estos si o si son ciertos y no necesitan respaldo en el mensaje.
+marca = [
+    "one", "oracle", "alura", "fiap",
+    # comunidades y plataformas con nombre propio
+    "alumnione", "empregaone",
+    # el hub de vacantes, con R. El brief escribe "EmpleaONE" y esta
+    # mal; corregirlo aca evita que un revisor lovei como error propio.
+    # (nota: la forma con S se deja fuera a proposito)
+    # las dos rutas del programa
+    "ai for tech", "ai for business",
+]
+
+# Stack que el propio programa declara en su plan de estudios. La
+# pagina de Oracle y la ficha de la cohorte nombran OCI, n8n y RAG.
+marca_tecnica = [
+    "oci", "n8n", "rag", "ia",
+]
+
+# SALGA DE ACA LangChain y LangGraph. Estaban antes, y estarian mal.
+# Son herramientas reales, pero NO son del programa: el plan de estudios
+# publica no las nombra, y el brief las menciona como el proyecto de la
+# persona, no como el stack institucional. Si el motor las acepta sin
+# respaldo, un post sobre LangChain puede dizer "LangGraph" en
+# cualquier parte y nadie lo frena. Que las respalde el mensaje.
+#
+# Lo mismo con "bootcamp", que estaba antes y que la web nunca usa:
+# Oracle dice "programa", "ruta" y "formacion". Usar "bootcamp" es
+#yjerga que la marca no tiene.
+
+# Encuadre institucional. Todas estas palabras aparecen en el sitio de
+# Oracle, en el manual del candidato o en los testimonios de Alura.
+autodescripcion = [
+    "comunidad", "programa", "formacion", "curso", "cursos",
+    "ruta", "rutas", "inmersion", "certificacion", "certificado",
+    "hackathon", "cohorte", "cohortes", "demo day",
+    "webinars", "webinarios", "mentoria", "mentorias",
+    "desafio", "desafios", "alumni",
+    # La conexion con el mercado laboral es la RAZON DE SER del
+    # programa segun su definicion oficial, asi que son institutional
+    # y no inventadas. Lo que NO autorizan es afirmar que una persona
+    # concreta consequence: ver [vigilancia].
+    "empleabilidad", "mercado laboral", "vacantes", "empleo",
+    "oportunidades", "empresa socia", "empresas socias",
+    # El objetivo formativo declarado, textual: "Desarrollador (a)
+    # Junior" y "Devs Jr".
+    "desarrollador", "desarrolladora", "dev", "devs jr", "jr",
+    # El marco con el que Alura presenta el programa entero:
+    # "Conoce las Historias de ONE", "historias de quienes
+    # transformaron sus vidas".
+    "historias", "transformacion", "historia",
+    # "habilidades tecnicas y conductuales" es como Oracle describe lo
+    # que el programa da. Aparece asi en el testimonio de una alumna.
+    "habilidades", "tecnicas", "conductuales",
+    # Los miembros dicen "culminar" y "concluir", nunca "egresar". Es
+    # el registro real de la comunidad y el que hay que imitar.
+    "culminar", "culmino", "concluir", "concluyo",
+]
+
+# ── SIGLAS Y EXPANSIONES ─────────────────────────────────────────────
+# "OCI" y "Oracle Cloud Infrastructure" son lo mismo escrito distinto.
+# Sin este mapa, el check de entidades rechazaria el ejemplo oficial del
+# propio brief de ONE, que seria un absurdo.
+
+[expansiones]
+"oracle cloud infrastructure" = "oci"
+"oracle cloud" = "oci"
+"infraestructura oracle cloud" = "oci"
+"oraclecloud" = "oci"
+"inteligencia artificial" = "ia"
+"inteligenciaartificial" = "ia"
+"aprendizaje automatico" = "ml"
+"aprendizajeautomatico" = "ml"
+"machine learning" = "ml"
+"machinelearning" = "ml"
+"modelo de lenguaje" = "llm"
+"modelodelenguaje" = "llm"
+"redes neuronales" = "red neuronal"
+"redesneuronales" = "red neuronal"
+"oracle next education" = "one"
+"next education" = "one"
+
+# "Dev Jr" y "Desarrolladora Junior" son la misma persona con el mismo
+# puesto, no un dato nuevo.
+#
+# El comentario de arriba prometia algo que los datos NO cumplian:
+# "dev" estaba mapeado a "dev", que es una identidad y no_respalda nada
+# -- el check busca la forma larga en la fuente, y "dev" no esta en
+# "puesto de Desarrolladora Junior". Con eso, el ejemplo OFICIAL del
+# propio brief ("Dev Jr de IA" contra una fuente que dice "Desarrolladora
+# Junior de IA") salia rechazado por entidades. Un mapa de abreviaturas
+# cuya entrada no abrevia a nada es un mapa que no esta probando nada.
+#
+# LIMITACION CONOCIDA, y no de este archivo: la forma larga es una sola,
+# asi que "dev" abrevia a "desarrolladora" y no a "desarrollador". Con
+# una fuente masculina el check la va a rechazar, y va a tener razon:
+# no hay forma de saber que "Dev" y "Desarrollador" son el mismo puesto
+# sin el documento. Que ONE lo confirme es un `[PENDIENTE]`.
+[abreviaturas]
+"jr" = "junior"
+"jrta" = "junior"
+"sr" = "senior"
+"srta" = "seniorita"
+"dev" = "desarrolladora"
+"srjr" = "senior"
+"tec" = "tecnologico"
+"org" = "organizacion"
+
+# ── SUPUESTOS DECLARADOS ─────────────────────────────────────────────
+# Palabras de contexto institucional que se usan SIN respaldo textual y
+# que el check reporta como `aprobado_con_supuestos` en vez de
+# rechazarlas. Son encuadre declarado, no informacion.
+#
+# IMPORTANTE — aca se corrige un error que estaba en el codigo.
+# Antes decia, textual: "los miembros de la comunidad son estudiantes
+# del programa". Es FALSO en el propio documento de ONE: el ejemplo
+# tiene a Mariana, que si dice "el proyecto del curso", y a Lucas, que
+# pregunta por LangGraph y no dice en ningun lado que sea estudiante.
+# Un supuesto global sobre "los miembros" declara una cosa que el
+# documento desmiente. Un supuesto acotado al vocablo, que es lo que
+# queda aca, declara solo que la palabra sugiere pertenencia a un
+# programa, que es la parte que efectivamente se esta suponiendo.
+#
+# [PENDIENTE] el documento NO define si ONE es un programa de
+# estudiantes, una comunidad de profesionales, o ambas. La palabra
+# "estudiante" quedo porque el brief la usa, pero la relacion
+# institucional real necesita que ONE la confirme.
+
+[supuestos]
+# Estas justificaciones ya NO son mioas: son la documentacion publica
+# de Oracle, textual. Antes de la investigacion web estas tres lineas
+# decian "el documento no aclara el alcance", y la web SI aclaraba.
+# Un supuesto cuya justificacion podemos citar es distinto de uno que
+# tenemos que defender en una reunion.
+
+"estudiante" = "terminologia oficial de Oracle: 'Para ser un (a) estudiante ONE es necesario tener mas de 18 anos'. Es como la propia organizacion llama a quien cursa"
+"estudiantes" = "terminologia oficial de Oracle, misma fuente. Alura titula su pagina de testimonios 'lo que los estudiantes ONE dicen en las redes'"
+"egresad" = "AlumniONE es la comunidad oficial de graduados, y es DISTINTA de la de estudiantes: un alumni fue estudiante y hoy no lo es. Decir 'estudiante' de un alumni seria un error, no un supuesto"
+"graduad" = "la pagina de Oracle llama 'graduados' a quienes terminan las rutas obligatorias. Es el mismo estado que alumni"
+"participante" = "NO aparece en la documentacion oficial. Oracle dice estudiante, asi que por lo tanto queda como supuesto nuestro y no como terminologia de marca"
+
+# ── CONSTANTES DEL CONTRATO ───────────────────────────────────────────
+# Valores que el SISTEMA escribe, nunca el modelo. Si estan hardcodeados
+# en el codigo, cambiar de cliente es editar logica; aqui son un dato.
+# Los tres primeros salen literalmente del ejemplo del brief.
+
+[constantes]
+canal_recomendado = "LinkedIn Oficial"
+seccion_newsletter = "Logro de la Semana"
+origen_faq = "Duda frecuente planteada por {autor} en el canal de soporte"
+status_faq = "derivado_a_mentoria"
+bucket_oci = "communitylab-activos-marketing"
+plantilla_ruta_oci = "activos/{anio}-semana-{semana:02d}/paquete-distribucion.json"
+origen_comunidad = "Discord_Grupo_ONE_G10"
+
+# ── TONO POR CANAL ────────────────────────────────────────────────────
+# El brief lo pide explicito: "tonos de voz adecuados para cada canal
+# (tono inspirador en LinkedIn, conciso en Twitter/X, didactico en FAQ)".
+# Esta es la parte del brief que menos se estaba honrando: el motor
+# tenia UN prompt generico para los tres formatos.
+
+[tono]
+linkedin = "inspirador, cercano, en segunda persona; celebra sin exagerar"
+newsletter = "directo y breve, una idea por parrafo, sin superlativos"
+faq = "didactico y tecnico, explica sin jerga no explicada"
+twitter = "conciso, un solo concepto, sin preambulo"
+
+# ── LO QUE ONE NO PUEDE DECIR, o todavia no dijo ──────────────────────
+# Lista de prohibiciones y huecos. Un sistema honesto declara lo que no
+# sabe. Un motor con supuestos silenciosos es un motor que miente.
+#
+# Antes de la investigacion web esta lista tinha SEIS huecos. La web
+# contesto cuatro. Los que quedan son distintos en naturaleza: ya no
+# son "que significa esta palabra" sino "que autorizo a decir sobre
+# una persona", y eso no lo contesta ningun sitio publico.
+
+[restricciones]
+# Nada de lo que hay aca lo autoriza el documento. El codigo bloquea
+# estas afirmaciones como entidad inventada, y el bloque las nombra
+# para que se entienda por que.
+prohibido = [
+    "afirmar que una persona concretos esta contratada, cuando ella no lo dijo",
+    "calcular o estimar salarios, plazos o porcentajes de empleabilidad",
+    "usar 'empleo', 'contratada' o 'primera oportunidad' como garantia de resultado",
+    "usar 'bootcamp': la marca no lo dice, dice 'programa', 'ruta' y 'formacion'",
+    "nombrar 'EmpleaONE' con S: el nombre oficial es 'EmpregaONE'",
+    "mezclar las rutas: decir algo de AI for Business sobre una cohorte de AI for Tech",
+    "confundir estudiante con alumni: un graduado no es un estudiante actual",
+]
+
+# Lo que la web publica NO alcanza para responder esto. Se mantiene
+# abierto a proposito, y son las preguntas para la reunion con ONE.
+pendiente_de_definir = [
+    "Politica de emojis: el ejemplo del brief los usa y la web de Oracle no dice nada en ningun sentido",
+    "Si 'Hackathon ONE' y 'ONE G10' son nombres publicables. La web actual ya no usa 'G10': dice 'Hackathon internacional' y 'ONE AI Day'",
+    "Si se puede atribuir un empleo concreto a una persona concreta, o solo describir el mecanismo del programa",
+    "Si los testimonios de la comunidad se pueden republicar, y con que atribucion",
+    "Que hacer cuando el mensaje de la persona contradice al programa: si dice 'no soy de ONE', el sistema lo respeta o lo corrige",
+]
+
+# Lo que la web RESOLVIO, para que no se vuelva a preguntar. Vive aca
+# y no en un comentario porque es informacion que un humano va a
+# necesitar, y las respuestas documentadas son la mitad del valor de
+# haber untersado.
+resuelto_por_web = [
+    "'estudiante' es terminologia oficial de Oracle, no un supuesto nuestro",
+    "ONE puede decir 'mercado laboral' y 'empleabilidad': es su definicion oficial",
+    "ONE puede decir 'Desarrollador (a) Junior' y 'Devs Jr': es su objetivo formativo",
+    "El hub de vacantes se llama 'EmpregaONE', no 'EmpleaONE'",
+]
+
+# ── TOKENS DE VIGILANCIA ──────────────────────────────────────────────
+# Esto lo lee la automatizacion, no el redactor. Terminos que un humano
+# tiene que ver antes de publicar, porque tocan un borde que el
+# documento no resuelve.
+
+[vigilancia]
+# La distincion que hace el trabajo NO es legalista: la escribio Oracle.
+#
+# Lo que Oracle SI dice de si mismo (textual):
+#   "programa de educacion y empleabilidad que forma a personas en
+#    tecnologia y las conecta con el mercado laboral"
+#   "trabaja en la capacitacion de tus habilidades... para que seas un
+#    Desarrollador (a) Junior"
+#   "tendras acceso a nuestra plataforma de vacantes y podras participar
+#    de procesos selectivos en las empresas socias"
+#
+# Eso autoriza a hablar de MERCADO, de VACANTES y de PROCESOS
+# SELECTIVOS. No autoriza a decir que una persona concreta fue
+# contratada, porque "procesos selectivos" no es "empleo".
+#
+# Estos terminos se MARCAN para un humano, no se bloquean: son
+# legitimos cuando hablan del programa y problematicos cuando hablan de
+# una persona. El codigo no puede distinguir eso, y por eso los
+# escalona en un humano.
+terminos = [
+    "empleo", "empleada", "contratada", "contratado", "contrato",
+    "salario", "sueldo", "primera oportunidad", "primera vez",
+    "garantia", "garantizado", "procesos selectivos", "vacantes",
+    "mercado laboral", "empleabilidad",
+]
+motivo = "la conexion con el mercado laboral es la razon de ser del programa segun Oracle, asi que la palabra es institucional; lo que se vigila es que no se aplique a una persona concreta sin que ella lo haya dicho"

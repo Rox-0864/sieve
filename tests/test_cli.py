@@ -201,7 +201,12 @@ class _Falso:
 
     def completar(self, prompt: str, *, max_tokens: int = 800) -> ResultadoLLM:
         if "FAQ" in prompt or "mentor" in prompt:
-            datos: dict[str, object] = {"tema": "Nodos de reintento en LangGraph"}
+            # El tema tiene que hablar de lo que habla el mensaje del lote. Antes
+            # contestaba sobre LangGraph, que no estaba en el mensaje ni en
+            # el perfil: el activo salia rechazado y este test, que mide la
+            # CLI, estaba midiendo el grounding. Un doble que responde al
+            # aire no sirve para probar la tuberia.
+            datos: dict[str, object] = {"tema": "Como preparadas para un puesto de IA"}
         elif "resumen semanal" in prompt:
             datos = {
                 "titular": "Ana fue seleccionada para un puesto de IA",
@@ -278,13 +283,22 @@ def test_generar_no_publica_nada(
     lote_analizado: Path, tmp_path: Path, capsys: pytest.CaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Con `--salida` escribe, pero los activos salen con `curado: false`."""
+    """Con `--salida` escribe, pero los activos salen con `curado: false`.
+
+    El `--perfil one` es explicito, y no por prolijidad: es el flag que
+    dice de que organizacion se esta hablando. El default del comando es
+    el perfil neutro justamente para que no se asuma de quien es la
+    marca, y este test lo fija a mano para que el JSON llegue entero.
+    """
     monkeypatch.setattr(
         "sieve.analysis.providers.construir_proveedor", lambda *a, **k: _Falso(True)
     )
     prefijo = str(tmp_path / "activos")
     assert main(
-        ["generar", str(lote_analizado), "--provider", "ollama", "--salida", prefijo]
+        [
+            "generar", str(lote_analizado), "--provider", "ollama",
+            "--perfil", "one", "--salida", prefijo,
+        ]
     ) == 0
     capsys.readouterr()
 
