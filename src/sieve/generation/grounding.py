@@ -61,6 +61,21 @@ mucho texto donde meterse. Y poner un humano delante, que es lo que el
 brief llama "Panel de Curaduria" (linea 315) y que el equipo dejo como
 diferencial opcional. Con la curadura OBLIGATORIA, este modulo es la
 primera capa, no la unica. El limite se documenta en vez de esconderse.
+
+    El titulo lo escribe el sistema
+    -------------------------------
+    El titulo del post y el titular del newsletter son campos del
+    SISTEMA (ver `assets.py`), y el sistema los deriva de la primera
+    oracion del copy o resumen que el modelo escribio. Como ese texto
+    completo se verifica ANTES de que el activo exista, el titulo es un
+    substring de algo verificado: no pasa por ningun check porque no
+    puede mentir mas que el texto del que sale.
+
+    Esto cierra el problema medido con el titulo del propio brief: "De
+    la Comunidad al Mercado" fallaba el check de entidades con 'Mercado',
+    un sustantivo comun capitalizado por posicion. Antes de opcion C se
+    probo dejar pasar los titulos como "encuadre" con marcos; la solucion
+    estructural es que el titulo no salga del modelo.
 """
 
 from __future__ import annotations
@@ -965,6 +980,9 @@ def verificar_copy(
     if not nombre_autor and isinstance(fuente, str):
         raise ValueError("con una fuente de texto plano hace falta el autor")
 
+    # Los siete checks corren siempre. No existe un campo de modelo que
+    # los esquive: los titulos que no podian pasarlos los escribe el
+    # sistema, derivados de un copy ya verificado (ver `assets.py`).
     verificaciones = [
         check_cifras(copy, texto_fuente),
         # En posicion 1 para que el orden del informe sea el de siempre.
@@ -1031,6 +1049,11 @@ def verificar_activo(
     Los hashtags van por un camino distinto y no son un check: son
     encuadre, se separan y se reportan como marcos. Un activo sin
     hashtags -- el newsletter y el FAQ no tienen -- no falla por eso.
+
+    Los titulos no estan en `campos_del_modelo`: los escribe el sistema
+    (ver `assets.py`), derivandolos de la primera oracion del copy o
+    resumen verificado. Un check de contenido no puede pasar por campos
+    que no son contenido inventable.
 
     `perfil` es el mismo de `verificar_copy` y va por el mismo motivo:
     es la UNICA puerta por la que el pipeline entra al motor, asi que si

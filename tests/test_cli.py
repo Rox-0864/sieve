@@ -208,16 +208,17 @@ class _Falso:
             # aire no sirve para probar la tuberia.
             datos: dict[str, object] = {"tema": "Como preparadas para un puesto de IA"}
         elif "resumen semanal" in prompt:
+            # El titular lo escribe el sistema (opcion C): el modelo solo
+            # entrega el resumen, y el titular sale de su primera oracion.
             datos = {
-                "titular": "Ana fue seleccionada para un puesto de IA",
                 "resumen": (
                     "Ana fue seleccionada para el puesto de Desarrolladora "
                     "Junior de IA."
                 ),
             }
         else:
+            # Igual que arriba: el titulo es del sistema.
             datos = {
-                "titulo": "Ana fue seleccionada para un puesto de IA",
                 "copy": (
                     "Ana fue seleccionada para el puesto de Desarrolladora "
                     "Junior de IA."

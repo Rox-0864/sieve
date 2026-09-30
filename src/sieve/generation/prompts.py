@@ -17,16 +17,20 @@ interpolado --el texto de la persona-- va en un f-string chico que no
 puede contener llaves. No es estilo: es el bug que casi se shippea.
 
 Que campos pide el modelo
--------------------------
-De los nueve campos que tienen los tres activos juntos, el modelo
-escribe tres:
+------------------------
+De los veinte campos que tienen los tres activos juntos, el modelo
+escribe cinco:
 
-  PostLinkedin   -> titulo, copy, hashtags, potencial_engagement
-  Newsletter     -> titular, resumen
+  PostLinkedin   -> copy, hashtags, potencial_engagement
+  Newsletter     -> resumen
   SugerenciaFaq  -> tema
 
-Los otros seis los pone el sistema, mecanicamente (ver `assets.py`).
-Cada campo que el modelo no escribe es un campo que no puede inventar.
+Los otros quince los pone el sistema, mecanicamente (ver `assets.py`).
+Eso incluye el TITULO y el TITULAR: el modelo ya no los escribe. El
+sistema los deriva de la primera oracion del copy o resumen que el
+modelo escribio, y ese texto completo se verifica antes de que el
+activo exista (opcion C). Cada campo que el modelo no escribe es un
+campo que no puede inventar.
 """
 
 from __future__ import annotations
@@ -36,7 +40,7 @@ from sieve.perfil import NOMBRE_POR_DEFECTO, PerfilOrganizacion, cargar_perfil
 
 #: Se versiona como en M2, para poder atribuir un output viejo a la
 #: version de prompt que lo produjo.
-VERSION_PROMPT_GENERACION = "m4.1"
+VERSION_PROMPT_GENERACION = "m4.2"
 
 #: La valla para el texto de la persona. En un f-string de Python
 #: anterior a 3.12 no se pueden anidar comillas del mismo tipo, asi que
@@ -99,7 +103,6 @@ en "contratada"). Del ejemplo hay que aprender el tono y el largo, no
 copiar los hechos: son de otra persona.
 
 {
-  "titulo": "De la Comunidad al Mercado: el impacto de los proyectos practicos de IA",
   "copy": """ + '"""' + """Nada nos da mas orgullo que ver a nuestros talentos
 conquistando el mercado de la tecnologia! Nuestra estudiante Mariana Souza fue
 seleccionada para el puesto de Desarrolladora Junior de IA tras destacar sus
@@ -120,8 +123,9 @@ talentos", "nos enorgullece"). Es la voz de la institucion hablando
 DE sus estudiantes, nunca la voz del estudiante.
 LONGITUD: 3 a 5 frases. Es el limite de la atencion en un feed.
 
-Responde solo con estas cuatro claves: "titulo", "copy", "hashtags",
-"potencial_engagement".
+Responde solo con estas tres claves: "copy", "hashtags",
+"potencial_engagement". El titulo no lo escribis vos: lo escribe el
+sistema, tomando la primera oracion del copy.
 - "hashtags" es una lista de entre 3 y 5 strings, cada uno UN hashtag
   que empiece con "#". Nunca uno solo con todos pegados.
 - "potencial_engagement" es exactamente "Alto", "Medio" o "Bajo".
@@ -144,7 +148,8 @@ el puesto de Desarrolladora Junior de IA" es un resumen. "Mariana es
 una estrella del bootcamp" es publicitaria, y ademas es una afirmacion
 que el fuente no sostiene.
 
-Responde solo con estas dos claves: "titular", "resumen".
+Responde solo con UNA clave: "resumen". El titular no lo escribis vos:
+lo escribe el sistema, tomando la primera oracion del resumen.
 """
 )
 

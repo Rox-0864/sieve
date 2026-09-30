@@ -31,7 +31,7 @@ from sieve.generation.prompts import (
     construir_prompt_newsletter,
     construir_prompt_post_linkedin,
 )
-from sieve.models import Analisis, Interaccion, PostLinkedin
+from sieve.models import Analisis, Interaccion, Newsletter, PostLinkedin
 from sieve.perfil import PerfilOrganizacion
 
 # ── El doble ───────────────────────────────────────────────────────
@@ -89,12 +89,12 @@ def _resultado(procedencia: Procedencia = "llm") -> ResultadoAnalisis:
 
 
 POST_LIMPIO = _respuesta(
-    # El titulo va contra la fuente TANTO como el copy. El primer
-    # borrador de este test era "De la Comunidad al Mercado", y el
-    # grounding lo rechazo: "Mercado" no esta en el mensaje. El titulo
-    # es el lugar donde un modelo cuela un adjetivo sin que nadie lo
-    # note, porque nadie compara un titulo con la fuente.
-    titulo="Mariana Souza fue seleccionada para un puesto de IA",
+    # El titulo NO es del modelo: lo escribe el sistema (opcion C),
+    # derivandolo de la primera oracion del copy que el modelo escribio.
+    # El copy entero se verifica antes de que el activo exista, asi que
+    # el titulo hereda el grounding por ser un substring. Que el doble
+    # no incluya "titulo" es el contrato nuevo: un modelo que lo escribe
+    # es rechazo de campo del sistema, no ruido.
     copy=(
         "Nuestra estudiante Mariana Souza fue seleccionada para el puesto "
         "de Desarrolladora Junior de IA tras destacar sus proyectos con "
@@ -128,7 +128,11 @@ class TestPrompts:
         ):
             prompt = construir(FUENTE)
             assert FUENTE.texto in prompt
-            assert '"titulo"' in prompt or '"tema"' in prompt or '"titular"' in prompt
+            assert (
+                '"copy"' in prompt
+                or '"resumen"' in prompt
+                or '"tema"' in prompt
+            )
 
     def test_cada_canal_pide_su_tono(self) -> None:
         assert "inspirador" in construir_prompt_post_linkedin(FUENTE)
@@ -142,12 +146,12 @@ class TestPrompts:
         sintoma es que un dia el output pega.
 
         Se recorta DESDE el JSON del ejemplo, no desde la palabra
-        "titulo": la prosa que explica la correccion menciona "el mejor
+        "copy": la prosa que explica la correccion menciona "el mejor
         camino" justamente para decir que se lo saco, y un `in` a secas
         en toda la prosa da verde sobre el error que se quiere cazar.
         """
         prompt = construir_prompt_post_linkedin(FUENTE)
-        ejemplo = prompt[prompt.index('{\n  "titulo"') :]
+        ejemplo = prompt[prompt.index('{\n  "copy"') :]
         assert "mejor camino" not in ejemplo
         assert "seleccionada" in ejemplo
         assert "contratada" not in ejemplo
@@ -163,6 +167,8 @@ class TestPrompts:
         "seccion de un resumen semanal" esta en prosa: un `in` a secas
         pasa por verde con el prompt lleno de lo que prohibe.
         """
+        assert '"titulo"' not in construir_prompt_post_linkedin(FUENTE)
+        assert '"titular"' not in construir_prompt_newsletter(FUENTE)
         assert '"canal_recomendado"' not in construir_prompt_post_linkedin(FUENTE)
         assert '"seccion"' not in construir_prompt_newsletter(FUENTE)
         assert '"status"' not in construir_prompt_faq(FUENTE)
@@ -247,11 +253,11 @@ class TestGenerador:
         activo = GeneradorActivos(
             ProveedorDoble(
                 _respuesta(
-                    titular="Mariana fue seleccionada para un puesto de IA",
                     resumen=(
                         "Mariana Souza fue seleccionada para el puesto de "
-                        "Desarrolladora Junior de IA, por sus proyectos con "
-                        "LangChain y Oracle Cloud Infrastructure."
+                        "Desarrolladora Junior de IA. Destaco por sus "
+                        "proyectos con LangChain y Oracle Cloud "
+                        "Infrastructure."
                     ),
                 )
             )
@@ -265,11 +271,15 @@ class TestGenerador:
 
 class TestRechazos:
     def test_el_grounding_rechaza_y_no_devuelve_activo(self) -> None:
-        """El caso central:preferir no tener activo antes que tener uno falso."""
+        """El caso central: preferir no tener activo antes que tener uno falso.
+
+        La escalera corre sobre el COPY: "contratada" sube un peldano
+        sobre una fuente que solo dice "seleccionada". El titulo no pudo
+        haberlo dicho porque el titulo ya no es del modelo.
+        """
         resultado = GeneradorActivos(
             ProveedorDoble(
                 _respuesta(
-                    titulo="Mariana ya fue contratada",
                     copy=(
                         "Nuestra estudiante Mariana Souza ya fue contratada como "
                         "Desarrolladora Senior de IA en una empresa de retail, "
@@ -291,7 +301,6 @@ class TestRechazos:
         resultado = GeneradorActivos(
             ProveedorDoble(
                 _respuesta(
-                    titulo="Mariana Souza fue seleccionada",
                     copy=(
                         "Nuestra estudiante Mariana Souza fue seleccionada para "
                         "el puesto de Desarrolladora Senior de IA."
@@ -310,7 +319,6 @@ class TestRechazos:
         resultado = GeneradorActivos(
             ProveedorDoble(
                 _respuesta(
-                    titulo="De la Comunidad al Mercado",
                     copy=(
                         "Nuestra estudiante Mariana Souza fue seleccionada para el "
                         "puesto de Desarrolladora Junior de IA tras destacar sus "
@@ -422,7 +430,7 @@ class TestErroresDeGeneracion:
     def test_falta_un_campo_obligatorio(self) -> None:
         with pytest.raises(ErrorDeGeneracionError, match="campos del contrato"):
             GeneradorActivos(
-                ProveedorDoble(_respuesta(titulo="Solo un titulo sin copy"))
+                ProveedorDoble(_respuesta(hashtags=["#OracleCloud"]))
             ).generar_post(_resultado())
 
     def test_sin_proveedor_no_hay_fallback_inventado(self) -> None:
@@ -442,12 +450,12 @@ class TestFugasDeIdioma:
     """Un modelo multilingue se le escapa el idioma, y el grounding lo ve.
 
     Este fixture NO es inventado: es la salida real de `qwen2.5:3b` en
-    la primera corrida contra el mensaje del brief. El titular del
+    la primera corrida contra el mensaje del brief. El resumen del
     newsletter salio en portugues, "Desenvolvedora Júnior", con la
     palabra cambiada y el acento puesto.
 
     Vale la pena como test por una razon que no es el portugues: es el
-    unico sintoma que casi no se ve a simple vista. Un titular con
+    unico sintoma que casi no se ve a simple vista. Un resumen con
     "Desenvolvedora" se lee perfecto para quien no Portuguese, suena
     igual de profesional, y al ojo no se ve. Lo que lo delata es que la
     palabra no estaba en la fuente, y ese es el trabajo del grounding:
@@ -458,11 +466,10 @@ class TestFugasDeIdioma:
     Esto es la version ruidosa de un problema silencioso.
     """
 
-    def test_el_titular_en_portugues_se_rechaza(self) -> None:
+    def test_el_resumen_en_portugues_se_rechaza(self) -> None:
         resultado = GeneradorActivos(
             ProveedorDoble(
                 _respuesta(
-                    titular="Mariana foi selecionada para Desenvolvedora Júnior",
                     resumen=(
                         "Mariana Souza foi selecionada para o puesto de "
                         "Desenvolvedora Júnior de IA."
@@ -493,16 +500,20 @@ class TestCamposDelSistema:
         activo = GeneradorActivos(
             ProveedorDoble(
                 _respuesta(
-                    titular="Mariana fue seleccionada para un puesto de IA",
                     resumen=(
                         "Mariana Souza fue seleccionada para el puesto de "
-                        "Desarrolladora Junior de IA, por sus proyectos con "
-                        "LangChain y Oracle Cloud Infrastructure."
+                        "Desarrolladora Junior de IA. Destaco por sus "
+                        "proyectos con LangChain y Oracle Cloud "
+                        "Infrastructure."
                     ),
                 )
             )
         ).generar_newsletter(_resultado()).activo
         assert activo is not None
+        assert activo.titular == (
+            "Mariana Souza fue seleccionada para el puesto de Desarrolladora "
+            "Junior de IA"
+        )
 
     def test_un_campo_del_sistema_invitado_sigue_siendo_rechazo(self) -> None:
         """El parametro no se puede usar para salvar un invento.
@@ -514,18 +525,16 @@ class TestCamposDelSistema:
         """
         from sieve.generation.grounding import verificar_activo
 
-        activo = GeneradorActivos(
+        generado = GeneradorActivos(
             ProveedorDoble(
                 _respuesta(
-                    titular="Mariana fue seleccionada para un puesto de IA",
                     resumen=(
                         "Mariana fue contratada como Desarrolladora Senior con "
                         "un sueldo de 5000 dolares."
                     ),
                 )
             )
-        )
-        generado = activo.generar_newsletter(_resultado())
+        ).generar_newsletter(_resultado())
         assert generado.activo is None
         assert generado.informe.rechazados
         # Y el rechazo es el del `resumen`, el campo del modelo.
@@ -549,3 +558,107 @@ class TestGate:
         assert resultado.informe.publicable
         assert not resultado.publicable
         assert "curaduria" in resultado.resumen()
+
+
+class TestTituloDelSistema:
+    """El titulo lo escribe el sistema (opcion C), no el modelo.
+
+    Antes el modelo escribia `titulo` y `titular`, y el titulo del
+    propio brief ("De la Comunidad al Mercado") fallaba el check de
+    entidades con 'Mercado' -- un sustantivo comun capitalizado por
+    posicion. Se probo un mecanismo de "encuadre" para dejar pasar esos
+    titulos con marcos, y se descarto: la solucion estructural es que el
+    titulo no salga del modelo.
+
+    El sistema lo deriva de la primera oracion del copy o resumen que el
+    modelo escribio, y ese texto completo se verifica ANTES de que el
+    activo exista. El titulo es entonces un substring de un texto
+    verificado: no puede mentir mas que el texto del que sale, y no hace
+    falta ningun check especial sobre el.
+    """
+
+    def test_el_titulo_lo_escribe_el_sistema(self) -> None:
+        """El activo nace con el titulo derivado de la primera oracion."""
+        activo = GeneradorActivos(
+            ProveedorDoble(
+                _respuesta(
+                    copy=(
+                        "Nuestra estudiante Mariana Souza fue seleccionada "
+                        "para el puesto de Desarrolladora Junior de IA. "
+                        "Destaco por sus proyectos con LangChain y Oracle "
+                        "Cloud Infrastructure."
+                    ),
+                    hashtags=["#CarreraDev"],
+                    potencial_engagement="Alto",
+                )
+            )
+        ).generar_post(_resultado()).activo
+        assert activo is not None
+        assert isinstance(activo, PostLinkedin)
+        assert activo.titulo == (
+            "Nuestra estudiante Mariana Souza fue seleccionada para el "
+            "puesto de Desarrolladora Junior de IA"
+        )
+
+    def test_el_titular_lo_escribe_el_sistema(self) -> None:
+        """Lo mismo para el newsletter, desde la primera oracion del resumen."""
+        activo = GeneradorActivos(
+            ProveedorDoble(
+                _respuesta(
+                    resumen=(
+                        "Mariana Souza fue seleccionada para el puesto de "
+                        "Desarrolladora Junior de IA. Destaco por sus "
+                        "proyectos con LangChain y Oracle Cloud "
+                        "Infrastructure."
+                    ),
+                )
+            )
+        ).generar_newsletter(_resultado()).activo
+        assert activo is not None
+        assert isinstance(activo, Newsletter)
+        assert activo.titular == (
+            "Mariana Souza fue seleccionada para el puesto de Desarrolladora "
+            "Junior de IA"
+        )
+
+    def test_el_modelo_que_escribe_un_titulo_es_rechazo_de_campos_del_sistema(
+        self,
+    ) -> None:
+        """El modelo ya no es dueno del titulo: intentarlo es estructural.
+
+        Antes un nombre inventado en el titulo (Nubank) "se veia en el
+        humano". Ahora no puede existir: el modelo que escribe `titulo`
+        o `titular` esta tratando de decidir un campo del sistema, y eso
+        se rechaza con nombre, igual que escribir `status`.
+        """
+        post = GeneradorActivos(
+            ProveedorDoble(
+                _respuesta(
+                    titulo="Mariana fue seleccionada para trabajar en Nubank",
+                    copy=(
+                        "Mariana Souza fue seleccionada para el puesto de "
+                        "Desarrolladora Junior de IA."
+                    ),
+                    hashtags=["#CarreraDev"],
+                    potencial_engagement="Alto",
+                )
+            )
+        ).generar_post(_resultado())
+        assert post.activo is None
+        assert "titulo" in post.informe.resumen()
+        assert "campos del sistema" in post.informe.resumen()
+
+        newsletter = GeneradorActivos(
+            ProveedorDoble(
+                _respuesta(
+                    titular="Mariana consiguio empleo como Desarrolladora",
+                    resumen=(
+                        "Mariana Souza fue seleccionada para el puesto de "
+                        "Desarrolladora Junior de IA."
+                    ),
+                )
+            )
+        ).generar_newsletter(_resultado())
+        assert newsletter.activo is None
+        assert "titular" in newsletter.informe.resumen()
+        assert "campos del sistema" in newsletter.informe.resumen()

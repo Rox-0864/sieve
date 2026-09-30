@@ -13,10 +13,12 @@ forma que puedas comparar dos salidas, y no se puede hacer fallar en un
 test. Acá el prompt ES la capa que mas se puede relajar, porque hay dos
 capas debajo que no dependen de que el modelo obedezca:
 
-1. **Se le pide menos.** El modelo escribe 3 de los 9 campos que tienen
-   los tres activos. Los otros 6 los pone el sistema, mecanicamente. Un
-   campo que el modelo no toca es un campo que no puede inventar, y esa
-   es la unica defensa que no depende de su buena voluntad.
+1. **Se le pide menos.** El modelo escribe 5 de los 20 campos que tienen
+   los tres activos. Los otros 15 los pone el sistema, mecanicamente,
+   incluidos el titulo y el titular, que el SISTEMA deriva de la primera
+   oracion del copy o resumen ya verificado (opcion C). Un campo que el
+   modelo no toca es un campo que no puede inventar, y esa es la unica
+   defensa que no depende de su buena voluntad.
 
 2. **El texto de la persona va citado**, no recontado. Ver `prompts.py`.
 
@@ -53,6 +55,7 @@ el dict del modelo sino a armar el activo entero.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Generic, TypeVar
@@ -207,8 +210,35 @@ def _fuentes(fuente: Interaccion) -> list[str]:
     return [fuente.mensaje_id] if fuente.mensaje_id else []
 
 
-def _sistema_post(resultado: ResultadoAnalisis) -> dict[str, object]:
+def _titulo_del_sistema(texto: str) -> str:
+    """La primera oracion de texto del modelo, para el titulo del sistema.
+
+    Opcion C: el titulo del post y el titular del newsletter no los
+    escribe el modelo, los escribe el sistema, tomando la primera
+    oracion del copy o resumen que el modelo escribio. Como ese texto
+    completo pasa los siete checks ANTES de que el activo exista, el
+    titulo hereda el grounding por ser un substring de algo verificado:
+    no hace falta volver a correr la escalera sobre el titulo, no hay
+    manera de que invente un hecho que el texto del que sale no
+    respalde.
+
+    Determinista: mismo copy, mismo titulo. Asible en los tests
+    offline. El contrato exige 5 caracteres minimos, y una oracion
+    relevante siempre los tiene: el copy y el resumen ya pasaron sus
+    propios minimos.
+    """
+    for parte in re.split(r"[.!?;\n]+", texto.strip()):
+        parte = parte.strip()
+        if len(parte) >= 5:
+            return parte
+    return texto.strip()
+
+
+def _sistema_post(
+    resultado: ResultadoAnalisis, crudo: dict[str, object]
+) -> dict[str, object]:
     return {
+        "titulo": _titulo_del_sistema(str(crudo.get("copy", ""))),
         "canal_recomendado": CANAL_LINKEDIN,
         "confianza": _confianza(resultado),
         "curado": False,
@@ -216,16 +246,24 @@ def _sistema_post(resultado: ResultadoAnalisis) -> dict[str, object]:
     }
 
 
-def _sistema_newsletter(resultado: ResultadoAnalisis) -> dict[str, object]:
+def _sistema_newsletter(
+    resultado: ResultadoAnalisis, crudo: dict[str, object]
+) -> dict[str, object]:
     return {
         "seccion": SECCION_NEWSLETTER,
+        "titular": _titulo_del_sistema(str(crudo.get("resumen", ""))),
         "confianza": _confianza(resultado),
         "curado": False,
         "fuentes": _fuentes(resultado.interaccion),
     }
 
 
-def _sistema_faq(resultado: ResultadoAnalisis) -> dict[str, object]:
+def _sistema_faq(
+    resultado: ResultadoAnalisis, _crudo: dict[str, object]
+) -> dict[str, object]:
+    # El FAQ no deriva ningun campo del texto del modelo: sus campos de
+    # sistema son todos mecanicamente constantes. Firma identica a las
+    # otras dos para que `_SISTEMA` sea un mapa uniforme.
     fuente = resultado.interaccion
     return {
         # Copia un dato que YA tenemos. Dejarlo en manos del modelo es
@@ -247,7 +285,9 @@ def _sistema_faq(resultado: ResultadoAnalisis) -> dict[str, object]:
 
 
 #: `formato` -> quien escribe los campos que NO son del modelo.
-_SISTEMA: dict[str, Callable[[ResultadoAnalisis], dict[str, object]]] = {
+_SISTEMA: dict[
+    str, Callable[[ResultadoAnalisis, dict[str, object]], dict[str, object]]
+] = {
     "post_linkedin": _sistema_post,
     "newsletter": _sistema_newsletter,
     "faq": _sistema_faq,
@@ -256,15 +296,27 @@ _SISTEMA: dict[str, Callable[[ResultadoAnalisis], dict[str, object]]] = {
 _ESPECIFICACIONES: dict[str, _Especificacion[ActivoBase]] = {
     "post_linkedin": _Especificacion(
         clase=PostLinkedin,
-        campos_del_modelo=("titulo", "copy", "hashtags", "potencial_engagement"),
-        campos_del_sistema=("canal_recomendado", "confianza", "curado", "fuentes"),
+        campos_del_modelo=("copy", "hashtags", "potencial_engagement"),
+        campos_del_sistema=(
+            "titulo",
+            "canal_recomendado",
+            "confianza",
+            "curado",
+            "fuentes",
+        ),
         construir_prompt=construir_prompt_post_linkedin,
         max_tokens=700,
     ),
     "newsletter": _Especificacion(
         clase=Newsletter,
-        campos_del_modelo=("titular", "resumen"),
-        campos_del_sistema=("seccion", "confianza", "curado", "fuentes"),
+        campos_del_modelo=("resumen",),
+        campos_del_sistema=(
+            "seccion",
+            "titular",
+            "confianza",
+            "curado",
+            "fuentes",
+        ),
         construir_prompt=construir_prompt_newsletter,
         max_tokens=500,
     ),
@@ -385,7 +437,10 @@ class GeneradorActivos:
         datos: dict[str, object] = {
             clave: crudo[clave] for clave in spec.campos_del_modelo if clave in crudo
         }
-        datos.update(_SISTEMA[formato](resultado))
+        # El sistema arma el resto, incluido el titulo/titular derivado
+        # de la primera oracion del copy o resumen que el modelo escribio.
+        # Ver `_titulo_del_sistema`.
+        datos.update(_SISTEMA[formato](resultado, crudo))
 
         try:
             activo = spec.clase.model_validate(datos)
