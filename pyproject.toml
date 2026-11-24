@@ -38,6 +38,11 @@ ui = [
 oci = [
     "oci>=8.0",
 ]
+# API HTTP para la orquestacion (n8n) — M7
+api = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
 # Datos reales de comunidades
 data = [
     "datasets>=2.20",
