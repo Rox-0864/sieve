@@ -35,7 +35,7 @@ Rama: `main` · Entrega: `single-pr` · Test runner: `pytest` (offline).
   informe, botones aprobar/rechazar, persiste la decisión. Ruta: inline. S1, S3,
   S4, S6. ✅ (5 tests AppTest, commit a continuación).
 - **T4** — README: sección de curaduría y cómo correr el panel. Ruta: inline.
-  S5.
+  S5. ✅
 
 ## Log
 
@@ -51,3 +51,6 @@ Rama: `main` · Entrega: `single-pr` · Test runner: `pytest` (offline).
   fuente/activo/informe, y firma aprobar/rechazar sobre el mismo archivo.
   Testeado con `AppTest` (sin navegador): aprobar persiste, rechazar sin
   motivo no firma.
+- **L5** — T4 cerrado: README con sección de curaduría, quickstart con el
+  extra `ui`, y M6 marcado ✅ en la tabla de hitos. M6 cerrado de punta a
+  punta: `generar --curar-dir` → panel → firma persistida.

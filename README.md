@@ -657,7 +657,39 @@ inventar, y el único síntoma es que un día el output pega.
 - No hay sanitizador que recorte. Ver la nota de arriba.
 - No hay reintentos ni cache. `version_prompt` viaja en el resultado para que se vea cuándo se
   mezclaron dos versiones.
-- No hay forma de curar: `curado` siempre es `False` hasta que exista M6.
+- No firma nada: `curado` siempre sale en `False`. La firma es del panel (M6), no del generador.
+
+---
+
+## Curaduría (M6)
+
+El generador produce activos con `curado: False`, y así tienen que quedar hasta que un humano
+los mire. El panel de curaduría es esa firma.
+
+### Por qué el panel no cura el activo pelado
+
+`generar --salida` escribe el activo del contrato (`ActivosGenerados`) y punto. Eso no alcanza
+para decidir: aprobar sin ver de qué mensaje salió el activo, ni por qué el grounding lo
+aprobó, es firmar sin leer.
+
+Por eso `generar --curar-dir` escribe, además, un **paquete de curaduría** por activo: la
+fuente, el activo, el informe de grounding y la respuesta cruda del modelo. El directorio es
+el estado — no hay base de datos propia, y la decisión se persiste en el mismo archivo del
+paquete.
+
+```bash
+sieve generar datos.json --provider ollama --perfil one --curar-dir data/curacion
+streamlit run src/sieve/ui/curar.py -- data/curacion
+```
+
+### La firma, no la reimplementación
+
+El panel aprueba o rechaza. Aprobar da vuelta `curado` a `True`; rechazar exige un motivo,
+porque un rechazo sin razón no se puede auditar. En ambos casos quedan el curador y la fecha.
+
+Lo que el panel **no** hace importa tanto como lo que hace: no genera, no analiza, no publica.
+`puede_publicarse(informe, curado)` sigue siendo el único gate — un activo aprobado con
+grounding rechazado no es publicable, y el panel no puede saltarse eso.
 
 ---
 
@@ -670,7 +702,7 @@ inventar, y el único síntoma es que un día el output pega.
 | **M4** Grounding | 7 checks mecánicos + gate humano obligatorio | ✅ |
 | **M4** Activos | 3 formatos, prompts few-shot, JSON validado, 0 checks propios | ✅ |
 | **M5** OCI | bucket, PAR, política IAM acotada | |
-| **M6** Interfaz | panel de curaduría Streamlit con aprobar/rechazar | |
+| **M6** Interfaz | panel de curaduría Streamlit con aprobar/rechazar | ✅ |
 | **M7** Orquestación | flujo n8n sobre la API | |
 | **M8** Pulido | README, diagrama, demo, tag `v1.0` | |
 
@@ -684,7 +716,8 @@ funciona".
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[dev]"        # tests, lint, types
+pip install -e ".[ui]"         # para el panel de curaduría (M6)
 
 cp .env.example .env      # después cargar tus API keys
 
