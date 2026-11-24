@@ -761,3 +761,29 @@ def test_el_perfil_tambien_define_los_supuestos(
     neutros = verificar_copy(copy, BRIEF_FUENTE, perfil=perfil_neutro)
     assert not neutros.supuestos
     assert not neutros.rechazados
+
+
+def test_el_modulo_no_expone_constantes_derivadas_del_perfil_neutro() -> None:
+    """No hay diccionario vacio con nombre de constante en `grounding`.
+
+    `EXPANSIONES`, `ABREVIATURAS` y `SUPUESTOS_DECLARADOS` eran
+    `dict(perfil_neutro.<campo>)`: siempre vacios, porque el perfil
+    neutro no sabe de nadie. Leidas de arriba afirmaban "esta
+    organizacion no tiene expansiones", cuando en realidad decian "no
+    se donde estan". La trampa es que se ven bien: son del tipo
+    correcto y no rompen nada. Por eso el invariante se testea sobre
+    los NOMBRES, no sobre el comportamiento.
+
+    Esta asercion falla si alguien reintroduce cualquiera de las tres,
+    y el comentario al lado dice por que esa reintroduccion es un bug
+    y no una comodidad.
+    """
+    import sieve.generation.grounding as g
+
+    for nombre in ("EXPANSIONES", "ABREVIATURAS", "SUPUESTOS_DECLARADOS"):
+        assert not hasattr(g, nombre), (
+            f"{nombre} volvio a definirse: es un {dict.__name__} vacio "
+            "derivado del perfil neutro, y un objeto que miente sobre lo "
+            "que sabe es peor que un AttributeError. Para consultarlo se "
+            "pasa el perfil: verificar_copy(copy, fuente, perfil=...)"
+        )

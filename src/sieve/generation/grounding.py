@@ -249,23 +249,20 @@ def ordinales_en(texto: str) -> set[str]:
 #: Perfil por defecto de este modulo: vacio de conocimiento de cliente.
 #: Los tests corren contra este. Si un test pasa con el perfil de ONE,
 #: es porque depende de un cliente y el test esta mal escrito.
-_PERFIL: PerfilOrganizacion = cargar_perfil(NOMBRE_POR_DEFECTO)
+#:
+#: Antes era una CONSTANTE DE MODULO (`_PERFIL = cargar_perfil(...)` al
+#: importar). aqui el default de un parametro es un default de
+#: parametro, no un estado global: la diferencia es que el default se
+#: resuelve cuando el llamador no pasa perfil, en vez de quedar
+#: congelado en el import. Con `@cache` de `cargar_perfil` el costo es
+#: una lectura de diccionario.
+def _perfil_neutro() -> PerfilOrganizacion:
+    return cargar_perfil(NOMBRE_POR_DEFECTO)
+
 
 #: Verificacion de arranque. Un perfil mal formado tiene que fallar al
 #: importar el modulo, no tres horas despues en produccion.
-_PERFIL.model_validate(_PERFIL.model_dump())
-
-#: Siglas y expansiones legitimas. El documento de ONE usa "OCI" en la
-#: fuente y "Oracle Cloud Infrastructure" en el post: no es una
-#: invencion, es la misma cosa escrita distinto. Sin este mapa, el
-#: check de entidades rechazaria el ejemplo oficial del propio brief.
-EXPANSIONES: dict[str, str] = dict(_PERFIL.expansiones)
-
-#: Abreviaturas que equivalen a la palabra larga. El post del brief
-#: escribe "Dev Jr" donde la fuente dice "Desarrolladora Junior": es la
-#: misma persona con el mismo puesto, no un dato nuevo. Sin este mapa
-#: el check reporta a "Jr" como una entidad inventada.
-ABREVIATURAS: dict[str, str] = dict(_PERFIL.abreviaturas)
+_perfil_neutro().model_validate(_perfil_neutro().model_dump())
 
 #: Nombres propios de la institucion y su stack declarado: NO
 #: necesitan estar en la fuente, porque son las palabras que ya
@@ -343,7 +340,7 @@ def entidades_en(
     parte de ningun nombre: "LangChain y Oracle" son dos entidades, no
     una que se llame "LangChain y Oracle".
     """
-    p = perfil or _PERFIL
+    p = perfil or _perfil_neutro()
     encontradas: list[str] = []
     for oracion in re.split(r"[.!?;:\n]+", texto):
         # En espanol todo adjetivo de posicion se escribe con mayuscula
@@ -413,7 +410,7 @@ def _respaldado(
 def check_entidades(
     copy: str, fuente: str, autor: str, perfil: PerfilOrganizacion | None = None
 ) -> Verificacion:
-    p = perfil or _PERFIL
+    p = perfil or _perfil_neutro()
     permitidas = set(p.institutional_palabras) | {_normalizar(autor)}
     fuente_n = _normalizar(fuente)
     foundadas = [
@@ -869,7 +866,7 @@ def clasificar_hashtags(
     tags: Sequence[str], fuente: str, perfil: PerfilOrganizacion | None = None
 ) -> tuple[list[str], list[str]]:
     """(hashtags con respaldo, marcos editoriales)."""
-    p = perfil or _PERFIL
+    p = perfil or _perfil_neutro()
     fuente_n = _normalizar(fuente)
     con_respaldo: list[str] = []
     marcos: list[str] = []
@@ -914,9 +911,15 @@ def clasificar_hashtags(
 #:
 #: Que la justificacion exacta la escriba la organizacion y no este
 #: modulo es el punto: son datos, en `perfiles/<cliente>.toml`.
-SUPUESTOS_DECLARADOS: dict[str, str] = dict(
-    _PERFIL.supuestos.justificaciones
-)
+#:
+#: ACA VIVIA `SUPUESTOS_DECLARADOS`, y era la misma trampa que ya se
+#: habia destapado con `VOCABULARIO_INSTITUCIONAL`: un diccionario
+#: VACIO —el del perfil neutro— con nombre de constante. Leido de
+#: arriba dice "esta organizacion no declara supuestos", cuando en
+#: realidad dice "no se donde estan los supuestos". Los supuestos se
+#: consultan por perfil:
+#:
+#:     supuestos_de(copy, fuente, perfil=cargar_perfil("one"))
 
 
 def supuestos_de(
@@ -925,7 +928,7 @@ def supuestos_de(
     """Palabras de contexto usadas sin respaldo, declaradas como supuesto."""
     fuente_n = _normalizar(fuente)
     usados = set(re.findall(r"\b[a-z]+\b", _normalizar(copy)))
-    declarados = (perfil or _PERFIL).supuestos
+    declarados = (perfil or _perfil_neutro()).supuestos
     return [
         f"'{palabra}': {declarados.justificacion_de(palabra)}"
         for palabra in sorted(usados)
@@ -970,7 +973,7 @@ def verificar_copy(
     no hay forma de que "LangChain" en un post de LangChain no sea
     reportado como entidad inventada. Ver `sieve.perfil`.
     """
-    p = perfil or _PERFIL
+    p = perfil or _perfil_neutro()
     if isinstance(fuente, Interaccion):
         texto_fuente = corpus_fuente(fuente)
         nombre_autor = fuente.autor
@@ -1061,7 +1064,7 @@ def verificar_activo(
     vocabulario y el motor le rechaza el post de su propio brief. El
     default sigue siendo el perfil neutro, que no sabe de nadie.
     """
-    p = perfil or _PERFIL
+    p = perfil or _perfil_neutro()
     textos = campos_textuales(activo, campos=campos_del_modelo)
     if not textos:
         raise ValueError(f"{type(activo).__name__} no tiene texto para verificar")

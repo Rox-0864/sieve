@@ -26,6 +26,7 @@ from pydantic import ValidationError
 from sieve.perfil import (
     NOMBRE_POR_DEFECTO,
     PerfilOrganizacion,
+    Verificacion,
     cargar_perfil,
     listar_perfiles,
     verificar_perfil,
@@ -76,12 +77,13 @@ def test_cargar_es_barato_porque_el_perfil_no_cambia(
 def test_el_perfil_de_one_declara_sus_huecos(
     perfil_one: PerfilOrganizacion,
 ) -> None:
-    """Las seis preguntas de `pendiente_de_definir` se pueden leer.
+    """Las preguntas de `pendiente_de_definir` se pueden leer.
 
-    No se testea el CONTENIDO de cada hueco -- eso lo contesta ONE, no
-    este repo -- sino que los huecos existan y esten. Un perfil que no
-    declara lo que no sabe se convierte en un supuesto invisible en
-    cuanto alguien lo llena, y de ahi no se vuelve.
+    Eran seis y la investigacion web contesto cuatro, asi que hoy son
+    cinco. No se testea el CONTENIDO de cada hueco -- eso lo contesta
+    ONE, no este repo -- sino que los huecos existan y esten. Un perfil
+    que no declara lo que no sabe se convierte en un supuesto invisible
+    en cuanto alguien lo llena, y de ahi no se vuelve.
     """
     huecos = verificar_perfil(perfil_one)
 
@@ -201,3 +203,78 @@ def test_los_textuales_de_la_web_no_tienen_erratas_de_una_letra(
     for oficial in ("alumnione", "empregaone", "ai for tech", "ai for business"):
         assert oficial in institutional, f"{oficial} es oficial y no esta cargado"
         assert oficial in texto or oficial in institutional
+
+
+# ── De donde sale lo que el perfil afirma ────────────────────────────
+#
+# Antes estas fuentes vivian en el archivo y el motor las tiraba al
+# cargar: `de_toml` armaba un diccionario con las claves que conocia y
+# `extra="forbid"` rechazaba el resto. El perfil decia estar
+# verificado contra una URL que el codigo no guardaba, asi que nadie
+# podia revisar si el dato seguia en pie.
+
+
+def test_el_perfil_conserva_de_que_fuente_sale_cada_dato(
+    perfil_one: PerfilOrganizacion,
+) -> None:
+    """La seccion `[verificacion]` llega al modelo, no se descarta.
+
+    Se comprueba el CONTENIDO, no solo que el campo exista: un
+    `verificacion` presente pero vacio seria un perfil que sabe que
+    tiene que declarar fuentes y no declara ninguna.
+    """
+    v = perfil_one.verificacion
+
+    assert v.declarada
+    assert v.fuente_primaria.startswith("https://")
+    assert v.fuente_voz.startswith("https://")
+    assert v.fecha
+    # Las textuales son lo que hace auditable el resto: sin una cita
+    # literal, "fuente primaria" es una URL que alguien leyo en algum
+    # momento.
+    assert len(v.textuales) >= 3
+    assert all(t.strip() for t in v.textuales)
+
+
+def test_un_perfil_sin_fuente_no_se_hace_pasar_por_verificado(
+    perfil_one: PerfilOrganizacion,
+) -> None:
+    """Un perfil que afirma datos y no dice de donde sale, es un hueco.
+
+    No es lo mismo que el perfil este mal: es que no se puede
+    revisar. Por eso va a `verificar_perfil` y no a una excepcion,
+    que seria la razon equivocada para un dato opcional.
+    """
+    sin_fuente = perfil_one.model_copy(
+        update={"verificacion": Verificacion()}
+    )
+
+    assert not sin_fuente.verificacion.declarada
+    huecos = verificar_perfil(sin_fuente)
+    assert any("fuente primaria" in hueco for hueco in huecos)
+
+
+def test_el_perfil_neutro_no_declara_una_verificacion_que_no_tiene() -> None:
+    """El perfil que no sabe de nadie tampoco puede citar a nadie.
+
+    Un default con `fuente_primaria` puesta seria una forma de que
+    "el perfil neutro" dejara de ser neutro sin que nadie lo notara.
+    """
+    neutro = cargar_perfil(NOMBRE_POR_DEFECTO)
+
+    assert not neutro.verificacion.declarada
+    assert not neutro.verificacion.fuente_primaria
+    assert not neutro.verificacion.textuales
+
+
+def test_el_perfil_de_one_no_hereda_verificacion_del_neutro(
+    perfil_one: PerfilOrganizacion,
+) -> None:
+    """Cargar un perfil no le presta la verificacion de otro.
+
+    El defecto de aca seria silencioso: `de_toml` arma el diccionario
+    campo por campo, asi que una clave ausente de `[verificacion]`
+    tiene que quedar en su default, no en el valor de otro perfil.
+    """
+    assert perfil_one.verificacion.fuente_primaria
+    assert cargar_perfil(NOMBRE_POR_DEFECTO).verificacion.fuente_primaria == ""

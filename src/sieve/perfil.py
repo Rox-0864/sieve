@@ -168,6 +168,53 @@ class Vigilancia(BaseModel):
     motivo: str = ""
 
 
+class Verificacion(BaseModel):
+    """De donde sale lo que este perfil afirma.
+
+    Un perfil lleno de datos y sin fuentes es un perfil de opinion: se
+    ve igual de bien escrito, y por eso es el que mas engana, porque
+    un comentario de mas o una errata en una URL no se detectan. Lo
+    que hace esta seccion es volver CITAIBLE al perfil.
+
+    Antes estas fuentes vivian en el archivo y el motor las
+    descartaba al cargar: `de_toml` armaba un diccionario con las
+    claves que conocia y `extra="forbid"` rechazaba el resto. El perfil
+    afirmaba estar verificado contra una URL y el codigo no guardaba
+    ni esa URL, asi que nadie podia auditar si el dato seguia en pie.
+    Un perfil que dice de donde viene es un perfil que se puede volver
+    a revisar; uno que no lo dice, solo se puede creer.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    #: La documentacion publica de la organizacion sobre si misma.
+    fuente_primaria: str = ""
+    #: La voz de la organizacion: testimonios, casos, posts firmados.
+    #: Distinta de la anterior a proposito, porque lo que la
+    #: organizacion PUBLICA sobre el programa entero y lo que su
+    #: comunidad dice sobre SU cohorte no tienen el mismo alcance.
+    fuente_voz: str = ""
+    #: La estructura del programa: rutas, cohorts, requisitos.
+    fuente_estructura: str = ""
+    #: Cuando se leyeron. Sin fecha, una URL no dice si el dato se
+    #: acaba de verificar o si tiene dos anos.
+    fecha: str = ""
+    #: Citas literales de la fuente primaria. Entrecomilladas de
+    #: verdad: si la pagina cambia el texto, estas lineas son las
+    #: que hay que volver a mirar.
+    textuales: tuple[str, ...] = ()
+
+    @property
+    def declarada(self) -> bool:
+        """Si el perfil dice de donde sale.
+
+        No es "si el perfil es correcto": eso no se puede saber sin
+        red. Es si el perfil APUNTA a algo que se pueda revisar, que es
+        la unica garantia que se puede dar offline.
+        """
+        return bool(self.fuente_primaria)
+
+
 class PerfilOrganizacion(BaseModel):
     """Conocimiento de marca de UNA organizacion.
 
@@ -181,6 +228,9 @@ class PerfilOrganizacion(BaseModel):
     nombre: str
     descripcion: str = ""
     identidad: Identidad
+    #: De donde sale lo que el perfil afirma. Vive en el modelo, no en
+    #: un comentario, por lo que dijo `Verificacion`.
+    verificacion: Verificacion = Verificacion()
     vocabulario: Vocabulario = Vocabulario()
     expansiones: dict[str, str] = Field(default_factory=dict)
     abreviaturas: dict[str, str] = Field(default_factory=dict)
@@ -225,6 +275,19 @@ class PerfilOrganizacion(BaseModel):
                 },
                 "constantes": datos.get("constantes", {}),
                 "tono": datos.get("tono", {}),
+                "verificacion": {
+                    "fuente_primaria": datos.get("verificacion", {}).get(
+                        "fuente_primaria", ""
+                    ),
+                    "fuente_voz": datos.get("verificacion", {}).get("fuente_voz", ""),
+                    "fuente_estructura": datos.get("verificacion", {}).get(
+                        "fuente_estructura", ""
+                    ),
+                    "fecha": datos.get("verificacion", {}).get("fecha", ""),
+                    "textuales": tuple(
+                        datos.get("verificacion", {}).get("textuales", ())
+                    ),
+                },
                 "identidad": {
                     **datos["identidad"],
                     "audiencia": tuple(datos["identidad"].get("audiencia", ())),
@@ -324,4 +387,15 @@ def verificar_perfil(perfil: PerfilOrganizacion) -> list[str]:
         huecos.append("constantes vacio: el contrato va a usar defaults")
     if not perfil.tono:
         huecos.append("tono vacio: un prompt para todos los canales")
+    if not perfil.verificacion.declarada:
+        # Un perfil sin fuente primaria no es un perfil verificado: es
+        # un perfil escrito con conviccion. El motor no puede
+        # distinguirlo de uno revisado, y por eso lo declara en vez de
+        # dejarlo pasar. El perfil neutro tambien entra por aca, y
+        # esta bien: un default sin fuente es un default que no sabe de
+        # nadie, no uno que todavia no lo haya buscado.
+        huecos.append(
+            "verificacion sin fuente primaria: el perfil no dice de donde "
+            "salen sus datos"
+        )
     return huecos

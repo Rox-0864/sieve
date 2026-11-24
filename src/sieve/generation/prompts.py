@@ -49,17 +49,21 @@ _VALLA = '"""'
 
 # ── El andamiaje, comun a los tres ─────────────────────────────────
 
-#: La identidad de la marca. Antes vivia aca como texto fijo y decia
-#: "una empresa de formacion tecnica", que es una generalizacion
-#: escrita por el motor y no un dato de nadie. El brief de ONE describe
-#: otra cosa: un programa educativo junto a Oracle Next Education y
-#: Alura. Que la organizacion se describa a si misma es dato suyo, y
-#: por eso sale del perfil. Ver `sieve.perfil`.
-_IDENTIDAD: PerfilOrganizacion = cargar_perfil(NOMBRE_POR_DEFECTO)
-
-_ANDamiaje = """
-""" + _IDENTIDAD.identidad.prompt + """
-
+#: Las reglas, que NO dependen de quien escribe.
+#:
+#: La identidad de la marca NO esta aca, y esa es la parte que se
+#: armaba antes. Antes este modulo importaba el perfil neutro y lo
+#: interpolaba en una constante de modulo: `_ANDamiaje` era un string
+#: ya cocido que decia "Sos un redactor. Escribis para una
+#: comunidad". Correr el pipeline con `--perfil one` no cambiaba ni una
+#: letra de ese texto, mientras que el grounding de la MISMA corrida si
+#: recibia el perfil de ONE. El motor juzgaba con un perfil y escribia
+#: con otro, y el desajuste era invisible: los checks pasaban igual
+#: porque no miran el prompt.
+#:
+#: Ahora `_andamiaje` es una FUNCION que recibe el perfil. El prompt se
+#: arma en la llamada, con la identidad que el llamador eligio.
+_REGLAS = """
 REGLAS, en orden de importancia:
 
 1. NO INVENTES NADA. Todo hecho del texto tiene que existir en el
@@ -84,6 +88,33 @@ FORMATO: responde solo con un objeto JSON, sin texto alrededor, sin
 markdown, con las claves exactas que se piden abajo. Si el JSON tiene
 una clave de mas, el sistema la va a descartar.
 """
+
+
+def _andamiaje(perfil: PerfilOrganizacion) -> str:
+    """Las instrucciones comunes, con la identidad del perfil.
+
+    El perfil va por parametro y no por variable de modulo a
+    proposito: que la identidad entre POR LLAMADA es lo que hace que
+    `construir_prompt_post_linkedin(fuente, perfil=uno)` diga
+    "programa ONE" y con el perfil neutro diga "una comunidad". Si
+    esto volviera a ser una constante de modulo, el bug vuelve con
+    ella.
+    """
+    return "\n" + perfil.identidad.prompt + "\n" + _REGLAS
+
+
+def _perfil_neutro() -> PerfilOrganizacion:
+    """El perfil por defecto, para cuando el llamador no pasa ninguno.
+
+    Se resuelve POR LLAMADA y no al importar el modulo. La diferencia
+    no es academica: cargarlo al importar convertia "sin perfil" en
+    una decision irreversible tomada en el import, y por eso el
+    llamador no podia sobreescribirla despues. `cargar_perfil` ya
+    tiene `@cache`, asi que el costo de resolverlo aca es el de una
+    lectura de diccionario.
+    """
+    return cargar_perfil(NOMBRE_POR_DEFECTO)
+
 
 # ── LinkedIn ───────────────────────────────────────────────────────
 
@@ -114,9 +145,7 @@ camino para impulsar la carrera tech. Felicitaciones, Mariana!""" + '"""' + """,
 }
 """
 
-_LINKEDIN = (
-    _ANDamiaje
-    + """
+_LINKEDIN = """
 CANAL: publicacion de LinkedIn de la organizacion.
 TONO: inspirador y calido, en primera persona del plural ("nuestros
 talentos", "nos enorgullece"). Es la voz de la institucion hablando
@@ -130,14 +159,10 @@ sistema, tomando la primera oracion del copy.
   que empiece con "#". Nunca uno solo con todos pegados.
 - "potencial_engagement" es exactamente "Alto", "Medio" o "Bajo".
 """
-    + _EJEMPLO_POST
-)
 
-# ── Newsletter ─────────────────────────────────────────────────────
+# ── Newsletter ───────────────────────────────────────────────────────
 
-_NEWSLETTER = (
-    _ANDamiaje
-    + """
+_NEWSLETTER = """
 CANAL: seccion de un resumen semanal.
 TONO: sobrio y escueto. Sin emojis, sin exclamaciones, sin retorica.
 Es un resumen para gente que ya esta al dia, no una celebracion.
@@ -151,13 +176,10 @@ que el fuente no sostiene.
 Responde solo con UNA clave: "resumen". El titular no lo escribis vos:
 lo escribe el sistema, tomando la primera oracion del resumen.
 """
-)
 
 # ── FAQ ────────────────────────────────────────────────────────────
 
-_FAQ = (
-    _ANDamiaje
-    + """
+_FAQ = """
 CANAL: seccion de FAQ / tips tecnicos.
 TONO: didactico y directo. Sin emojis.
 
@@ -178,7 +200,6 @@ Ejemplo del estilo que se busca:
 Responde solo con UNA clave: "tema". Y "tema" es un titulo de
 consulta, no una respuesta.
 """
-)
 
 # ── Armado ─────────────────────────────────────────────────────────
 
@@ -199,13 +220,32 @@ def _bloque_fuente(fuente: Interaccion) -> str:
     )
 
 
-def construir_prompt_post_linkedin(fuente: Interaccion) -> str:
-    return _LINKEDIN + _bloque_fuente(fuente)
+def construir_prompt_post_linkedin(
+    fuente: Interaccion, perfil: PerfilOrganizacion | None = None
+) -> str:
+    """El prompt de LinkedIn, con la identidad del perfil que se pase.
+
+    El perfil es un PARAMETRO y no una constante de modulo. Ese es
+    todo el punto del cambio: antes la identidad estaba interpolada en
+    una constante al importar el modulo, asi que pedir el prompt con
+    `--perfil one` no cambiaba el prompt. Era posible generar con el
+    grounding de ONE y con la identidad de "una comunidad", porque las
+    dos cosas viajaban por caminos distintos y nadie los cruzaba.
+    """
+    return _andamiaje(perfil or _perfil_neutro()) + _LINKEDIN + _EJEMPLO_POST + (
+        _bloque_fuente(fuente)
+    )
 
 
-def construir_prompt_newsletter(fuente: Interaccion) -> str:
-    return _NEWSLETTER + _bloque_fuente(fuente)
+def construir_prompt_newsletter(
+    fuente: Interaccion, perfil: PerfilOrganizacion | None = None
+) -> str:
+    return _andamiaje(perfil or _perfil_neutro()) + _NEWSLETTER + _bloque_fuente(
+        fuente
+    )
 
 
-def construir_prompt_faq(fuente: Interaccion) -> str:
-    return _FAQ + _bloque_fuente(fuente)
+def construir_prompt_faq(
+    fuente: Interaccion, perfil: PerfilOrganizacion | None = None
+) -> str:
+    return _andamiaje(perfil or _perfil_neutro()) + _FAQ + _bloque_fuente(fuente)

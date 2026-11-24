@@ -384,19 +384,57 @@ verificar_copy(copy, fuente, perfil=cargar_perfil("one")).veredicto
 Mismo texto, mismo motor, veredictos distintos. El motor es genérico; ONE es un dato.
 
 **Y el perfil también declara lo que no sabe.** Un motor con supuestos silenciosos es un
-motor que miente sobre lo que sabe. `verificar_perfil()` lista los huecos, y hay seis:
+motor que miente sobre lo que sabe. `verificar_perfil()` lista los huecos.
 
-```
-- Si ONE autoriza decir 'nuestra estudiante' o 'nuestro estudiante'
-- Si los miembros de la comunidad son estudiantes, profesionales o ambos
-- Política de emojis: el ejemplo del brief usa cohete y aplausos
-- Si se puede afirmar 'empleo' sobre un miembro de la comunidad
-- Si 'Hackathon ONE' y 'ONE G10' son nombres publicables
-- Política de autorización para nombrar a la persona y su carrera
-```
+Eran seis antes de la investigación web. La web contestó cuatro, y quedan **cinco** de otra
+naturaleza: ya no son *"qué significa esta palabra"* sino *"qué autorizo a decir sobre una
+persona"*. Eso no lo contesta ningún sitio público — es de la reunión con ONE.
 
-Ninguno sale del documento. Son las preguntas que hay que hacerle a ONE antes de producción,
-escritas donde el código las puede mostrar en vez de dejarlas perdidas en un ticket.
+Las cinco están en `perfiles/one.toml`, en `pendiente_de_definir`, y **no se repiten acá a
+propósito**. Un README que copia la lista es un segundo lugar donde la lista se desactualiza
+en silencio, que es exactamente la clase de bug que este diseño vino a matar. La fuente es
+el perfil; la CLI las imprime con `sieve perfiles`; el README explica por qué existen.
+
+Junto a ellas, `resuelto_por_web` guarda lo que la web **sí** contestó, para que nadie vuelva
+a preguntar lo que ya se sabe.
+
+#### Y el perfil dice de dónde sale
+
+Un perfil lleno de datos y sin fuentes es un perfil de opinión: se ve igual de bien escrito, y
+por eso es el que más engaña. La sección `[verificacion]` —fuente primaria, fuente de voz,
+fuente de estructura, fecha de lectura y las citas textuales literales— **está en el modelo**,
+como `PerfilOrganizacion.verificacion`, no en un comentario.
+
+Antes esas fuentes vivían en el archivo y el motor las tiraba al cargar. `de_toml` armaba un
+diccionario con las claves que conocía, `extra="forbid"` rechazaba el resto, y el perfil
+afirmaba estar verificado contra una URL que el código no guardaba. Nadie podía revisar si el
+dato seguía en pie.
+
+Ahora un perfil sin `fuente_primaria` es un hueco que `verificar_perfil()` declara, y el perfil
+neutro no puede citar a nadie — un default con fuente puesta sería otra forma de que "el
+neutro" dejara de ser neutro sin que nadie lo notara.
+
+#### Un perfil por pipeline, no tres
+
+El bug que cerró este trabajo no era un dato equivocado: era que **el perfil no llegaba a
+todas las capas**. `grounding` recibía el perfil del cliente, pero el prompt y las constantes
+del contrato se armaban con constantes de módulo congeladas al importar. Se podía correr
+`sieve generar --perfil one` y obtener un activo evaluado con el vocabulario de ONE y escrito
+como *"Sos un redactor. Escribís para una comunidad"*. El desajuste era invisible: los checks
+no miran el prompt.
+
+Con ONE no se notaba, y esa es la parte incómoda. El valor declarado en `perfiles/one.toml` y
+el fallback hardcodeado en el motor coinciden en `"LinkedIn Oficial"`. El bug estaba tapado
+exactamente en el cliente con el que se escribieron los tests. Un segundo cliente habría
+publicado con el canal del primero, en silencio y sin un solo test rojo.
+
+La regla que sale de ahí:
+
+> **Un perfil manda a las tres capas o no es un perfil.** Si el prompt, las constantes y el
+> grounding leen de fuentes distintas, hay dos clientes hablando, y solo uno lo sabe.
+
+Hoy `GeneradorActivos.perfil` es el único lugar del que salen la identidad del prompt, las
+constantes del contrato y los checks. El invariante está en `tests/test_assets.py::TestUnSoloPerfil`.
 
 #### Un error que el perfil destapó
 

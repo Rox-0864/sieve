@@ -32,7 +32,7 @@ from sieve.generation.prompts import (
     construir_prompt_post_linkedin,
 )
 from sieve.models import Analisis, Interaccion, Newsletter, PostLinkedin
-from sieve.perfil import PerfilOrganizacion
+from sieve.perfil import Identidad, PerfilOrganizacion
 
 # ── El doble ───────────────────────────────────────────────────────
 
@@ -104,6 +104,15 @@ POST_LIMPIO = _respuesta(
     potencial_engagement="Alto",
 )
 
+#: El resumen que el generador de newsletter necesita. Vive aca y no
+#: inline porque lo usan dos tests: el del camino feliz y el que
+#: comprueba que la seccion sale del perfil del generador.
+RESUMEN_LIMPIO = (
+    "Mariana Souza fue seleccionada para el puesto de Desarrolladora Junior "
+    "de IA. Destaco por sus proyectos con LangChain y Oracle Cloud "
+    "Infrastructure."
+)
+
 
 # ── El prompt ──────────────────────────────────────────────────────
 
@@ -172,6 +181,98 @@ class TestPrompts:
         assert '"canal_recomendado"' not in construir_prompt_post_linkedin(FUENTE)
         assert '"seccion"' not in construir_prompt_newsletter(FUENTE)
         assert '"status"' not in construir_prompt_faq(FUENTE)
+
+
+# ── El perfil entra al prompt ───────────────────────────────────────
+#
+# Estas pruebas fijan un bug concreto. El modulo interpolaba la
+# identidad del perfil neutro en una CONSTANTE al importarse, asi que
+# `construir_prompt_post_linkedin(fuente)` decia "Sos un redactor...
+# para una comunidad" SIEMPRE, se pasara o no el perfil de ONE. El
+# grounding de la misma corrida si recibia el perfil del cliente, y
+# como los checks no miran el prompt, el desajuste no producia ningun
+# test rojo.
+
+
+class TestElPromptRecibeElPerfil:
+    def test_el_prompt_default_no_sabe_de_ninguna_organizacion(self) -> None:
+        """Sin perfil, la IDENTIDAD no presenta a ninguna marca.
+
+        La identidad es la primera linea del prompt, y es lo unico que
+        este bug movia: el few-shot si menciona a ONE y a Oracle a
+        proposito (es el ejemplo del brief, de otra persona), asi que
+        el nombre del programa no puede usarse como criterio. Se
+        compara contra el texto de la identidad del perfil neutro, que
+        es la unica frase que el motor escribe sin que se la pasen.
+        """
+        from sieve.perfil import NOMBRE_POR_DEFECTO, cargar_perfil
+
+        neutro = cargar_perfil(NOMBRE_POR_DEFECTO)
+        prompt = construir_prompt_post_linkedin(FUENTE)
+
+        assert neutro.identidad.prompt in prompt
+        # Y la identidad de un cliente real NO esta: eso es lo que el
+        # bug dejaba pasar.
+        assert "Programa ONE" not in prompt
+        assert "Grupo 10" not in prompt
+
+    def test_el_perfil_entra_al_prompt(
+        self, perfil_one: PerfilOrganizacion
+    ) -> None:
+        """`identidad.prompt` del perfil, en el prompt del canal.
+
+        No se busca una palabra suelta sino el texto EXACTO del perfil,
+        porque lo que hay que fijar es que sale de ahi y no de una
+        constante: si alguien reescribe la identidad en el perfil, este
+        test se mueve con ella.
+        """
+        assert perfil_one.identidad.prompt in construir_prompt_post_linkedin(
+            FUENTE, perfil_one
+        )
+
+    def test_los_tres_canales_cargan_el_perfil(
+        self, perfil_one: PerfilOrganizacion
+    ) -> None:
+        """No solo el de LinkedIn: los tres comparten el mismo andamiaje.
+
+        Un andamiaje por canal es una constante por canal, que es
+        exactamente el bug de nuevo.
+        """
+        for construir in (
+            construir_prompt_post_linkedin,
+            construir_prompt_newsletter,
+            construir_prompt_faq,
+        ):
+            assert perfil_one.identidad.prompt in construir(FUENTE, perfil_one)
+
+    def test_el_generador_manda_el_perfil_al_prompt(
+        self, perfil_one: PerfilOrganizacion
+    ) -> None:
+        """El perfil del generador es el que llega al proveedor.
+
+        Esta es la prueba del cable completo: `GeneradorActivos` ya
+        recibia el perfil, pero solo lo usaba para el grounding. Si el
+        prompt se arma antes de pasarlo, el prompt del proveedor no
+        tiene la identidad del cliente.
+        """
+        proveedor = ProveedorDoble(POST_LIMPIO)
+        GeneradorActivos(proveedor, perfil_one).generar_post(_resultado())
+
+        assert proveedor.prompts[0].count(perfil_one.identidad.prompt) == 1
+        # Y no la del perfil neutro por otra parte del prompt.
+        assert "para una comunidad" not in proveedor.prompts[0]
+
+    def test_cambiar_de_perfil_cambia_el_prompt(
+        self, perfil_one: PerfilOrganizacion, perfil_neutro: PerfilOrganizacion
+    ) -> None:
+        """Dos perfiles, dos prompts distintos.
+
+        Si esto falla, el perfil volvio a ser una constante: el prompt
+        esta igual porque el argumento se ignora.
+        """
+        assert construir_prompt_post_linkedin(
+            FUENTE, perfil_one
+        ) != construir_prompt_post_linkedin(FUENTE, perfil_neutro)
 
 
 # ── El camino feliz ────────────────────────────────────────────────
@@ -264,6 +365,62 @@ class TestGenerador:
         ).generar_newsletter(_resultado()).activo
         assert activo is not None
         assert activo.seccion == SECCION_NEWSLETTER
+
+    def test_las_constantes_salen_del_perfil_del_generador(self) -> None:
+        """El canal y la seccion los declara la organizacion, no el motor.
+
+        Antes estas dos constantes se leian del perfil NEUTRO al
+        importar el modulo y quedaban congeladas. Con ONE no se notaba:
+        el valor de `perfiles/one.toml` y el fallback hardcodeado
+        coinciden en "LinkedIn Oficial". Con un segundo cliente, el
+        motor habria escrito el canal del primero, en silencio y sin
+        ningun test rojo, porque el default estaba bien para el cliente
+        con el que se escribieron los tests.
+
+        Por eso el perfil de la asercion tiene valores que NO son los
+        defaults: si el generador los ignorara y usara el fallback, el
+        test falla.
+        """
+        otro = PerfilOrganizacion(
+            nombre="korda",
+            descripcion="Cliente de prueba con constantes propias.",
+            identidad=Identidad(sector="pagos", prompt="Sos de KordaPay."),
+            constantes={
+                "canal_recomendado": "Blog de Korda",
+                "seccion_newsletter": "Cierre de Mes",
+            },
+        )
+        post = GeneradorActivos(ProveedorDoble(POST_LIMPIO), otro).generar_post(
+            _resultado()
+        ).activo
+        newsletter = GeneradorActivos(
+            ProveedorDoble(_respuesta(resumen=RESUMEN_LIMPIO)), otro
+        ).generar_newsletter(_resultado()).activo
+
+        assert post is not None and newsletter is not None
+        assert post.canal_recomendado == "Blog de Korda"
+        assert newsletter.seccion == "Cierre de Mes"
+        # Y no por casualidad los defaults del motor.
+        assert post.canal_recomendado != CANAL_LINKEDIN
+        assert newsletter.seccion != SECCION_NEWSLETTER
+
+    def test_un_perfil_sin_constantes_degrada_al_fallback(self) -> None:
+        """Un perfil incompleto tiene que producir un activo, no una excepcion.
+
+        El fallback existe para eso: es peor que el campo quede con el
+        valor del brief de ONE que reventar la corrida. Y el valor tiene
+        que ser el del motor, no el de otro perfil.
+        """
+        sin_constantes = PerfilOrganizacion(
+            nombre="minimal",
+            descripcion="Perfil sin constantes.",
+            identidad=Identidad(sector="x", prompt="Sos un redactor."),
+        )
+        activo = GeneradorActivos(
+            ProveedorDoble(POST_LIMPIO), sin_constantes
+        ).generar_post(_resultado()).activo
+        assert activo is not None
+        assert activo.canal_recomendado == CANAL_LINKEDIN
 
 
 # ── Lo que el generador tiene que frenar ───────────────────────────
@@ -558,6 +715,58 @@ class TestGate:
         assert resultado.informe.publicable
         assert not resultado.publicable
         assert "curaduria" in resultado.resumen()
+
+
+# ── El invariante ───────────────────────────────────────────────────
+#
+# Un solo perfil manda a las TRES capas. Antes no era asi, y esa era la
+# deuda: el grounding recibia `self.perfil` mientras el prompt y las
+# constantes del contrato salian de constantes de modulo congeladas al
+# importar. El motor juzgaba con un perfil y escribia con otro.
+
+
+class TestUnSoloPerfil:
+    def test_el_perfil_llega_al_prompt_y_a_las_constantes(self) -> None:
+        """Las tres capas de una corrida hablan del mismo perfil.
+
+        Es el test que ata los dos bugs. Si el prompt vuelve a tomar la
+        identidad de una constante, o las constantes vuelven a salirse
+        del perfil neutro, el "otro" de abajo no aparece en el prompt
+        aunque el generador lo tenga en la mano.
+        """
+        otro = PerfilOrganizacion(
+            nombre="korda",
+            descripcion="Cliente de prueba.",
+            identidad=Identidad(
+                sector="pagos",
+                prompt="Sos el equipo editorial de KordaPay.",
+            ),
+            constantes={"canal_recomendado": "Blog de Korda"},
+        )
+        proveedor = ProveedorDoble(POST_LIMPIO)
+        activo = GeneradorActivos(proveedor, otro).generar_post(_resultado()).activo
+
+        # 1. El prompt que se leyo el modelo.
+        assert "Sos el equipo editorial de KordaPay." in proveedor.prompts[0]
+        # 2. La constante del contrato.
+        assert activo is not None
+        assert activo.canal_recomendado == "Blog de Korda"
+
+    def test_un_generador_con_perfil_no_escribe_como_el_neutro(
+        self, perfil_one: PerfilOrganizacion
+    ) -> None:
+        """Si el perfil no se propaga, la corrida se parece al default.
+
+        Comparar el prompt contra el del perfil neutro detecta que la
+        identidad noviajo, sin depender de leer el string entero.
+        """
+        con_perfil = ProveedorDoble(POST_LIMPIO)
+        GeneradorActivos(con_perfil, perfil_one).generar_post(_resultado())
+
+        sin_perfil = ProveedorDoble(POST_LIMPIO)
+        GeneradorActivos(sin_perfil).generar_post(_resultado())
+
+        assert con_perfil.prompts[0] != sin_perfil.prompts[0]
 
 
 class TestTituloDelSistema:

@@ -87,16 +87,33 @@ from sieve.perfil import NOMBRE_POR_DEFECTO, PerfilOrganizacion, cargar_perfil
 
 T = TypeVar("T", bound=ActivoBase)
 
+
+def _perfil_neutro() -> PerfilOrganizacion:
+    """El perfil por defecto, resuelto por llamada.
+
+    Existia como constante de modulo (`_PERFIL`) y por eso era una
+    decision tomada en el import que nadie podia sobreescribir despues.
+    Ahora se resuelve cuando hace falta; `cargar_perfil` ya esta
+    cacheado, asi que el costo es una lectura de diccionario.
+    """
+    return cargar_perfil(NOMBRE_POR_DEFECTO)
+
 #: Constantes del CONTRATO: valores que escribe el SISTEMA, nunca el
-#: modelo. Salen del perfil de la organizacion y no de aca a proposito:
-#: son un dato, y cambiar de cliente no deberia obligar a editar la
-#: logica de generacion. Ver `sieve.perfil` y `perfiles/one.toml`.
+#: modelo.
 #:
-#: El default conserva los valores del brief de ONE para que el
-#: pipeline siga funcionando sin configuracion.
-_PERFIL: PerfilOrganizacion = cargar_perfil(NOMBRE_POR_DEFECTO)
-CANAL_LINKEDIN = _PERFIL.constante("canal_recomendado", "LinkedIn Oficial")
-SECCION_NEWSLETTER = _PERFIL.constante("seccion_newsletter", "Logro de la Semana")
+#: ACA ESTABA LA MENTIRA, y era del mismo tipo que la del prompt. Este
+#: comentario decia "salen del perfil de la organizacion", pero lo que
+#: se hacia era `cargar_perfil(NOMBRE_POR_DEFECTO).constante(...)` al
+#: IMPORTAR el modulo: el perfil NEUTRO, leido una vez y congelado en
+#: una constante. El valor de un cliente nunca llegaba aca. Con ONE no
+#: se notaba porque el fallback hardcodeado y el valor declarado en
+#: `perfiles/one.toml` coinciden ("LinkedIn Oficial"). Con un segundo
+#: cliente el motor habria escrito el canal del primero, en silencio.
+#:
+#: Ahora son SOLO el fallback, y el valor sale del perfil que el
+#: generador tiene en la mano. Ver `_sistema_post` y `_perfil_neutro`.
+CANAL_LINKEDIN = "LinkedIn Oficial"
+SECCION_NEWSLETTER = "Logro de la Semana"
 
 
 class ErrorDeGeneracionError(RuntimeError):
@@ -182,7 +199,14 @@ class _Especificacion(Generic[T]):
     clase: type[T]
     campos_del_modelo: tuple[str, ...]
     campos_del_sistema: tuple[str, ...]
-    construir_prompt: Callable[[Interaccion], str]
+    #: Recibe el perfil ademas de la interaccion. Antes era
+    #: `Callable[[Interaccion], str]` y tomaba la identidad de una
+    #: constante de modulo, asi que el generador no podia decidir de
+    #: quien escribia: lo que sabia de la marca era el prompt de
+    #: siempre. Ver `prompts._andamiaje`.
+    construir_prompt: Callable[
+        [Interaccion, PerfilOrganizacion | None], str
+    ]
     max_tokens: int
 
 
@@ -235,11 +259,13 @@ def _titulo_del_sistema(texto: str) -> str:
 
 
 def _sistema_post(
-    resultado: ResultadoAnalisis, crudo: dict[str, object]
+    resultado: ResultadoAnalisis, crudo: dict[str, object], perfil: PerfilOrganizacion
 ) -> dict[str, object]:
     return {
         "titulo": _titulo_del_sistema(str(crudo.get("copy", ""))),
-        "canal_recomendado": CANAL_LINKEDIN,
+        "canal_recomendado": perfil.constante(
+            "canal_recomendado", CANAL_LINKEDIN
+        ),
         "confianza": _confianza(resultado),
         "curado": False,
         "fuentes": _fuentes(resultado.interaccion),
@@ -247,10 +273,10 @@ def _sistema_post(
 
 
 def _sistema_newsletter(
-    resultado: ResultadoAnalisis, crudo: dict[str, object]
+    resultado: ResultadoAnalisis, crudo: dict[str, object], perfil: PerfilOrganizacion
 ) -> dict[str, object]:
     return {
-        "seccion": SECCION_NEWSLETTER,
+        "seccion": perfil.constante("seccion_newsletter", SECCION_NEWSLETTER),
         "titular": _titulo_del_sistema(str(crudo.get("resumen", ""))),
         "confianza": _confianza(resultado),
         "curado": False,
@@ -259,7 +285,7 @@ def _sistema_newsletter(
 
 
 def _sistema_faq(
-    resultado: ResultadoAnalisis, _crudo: dict[str, object]
+    resultado: ResultadoAnalisis, _crudo: dict[str, object], _perfil: PerfilOrganizacion
 ) -> dict[str, object]:
     # El FAQ no deriva ningun campo del texto del modelo: sus campos de
     # sistema son todos mecanicamente constantes. Firma identica a las
@@ -285,8 +311,16 @@ def _sistema_faq(
 
 
 #: `formato` -> quien escribe los campos que NO son del modelo.
+#:
+#: El perfil va por parametro y no por constante de modulo por la misma
+#: razon que en `prompts.py`: las constantes de sistema tienen que salir
+#: del perfil que el generador tiene en la mano, no de uno congelado al
+#: importar.
 _SISTEMA: dict[
-    str, Callable[[ResultadoAnalisis, dict[str, object]], dict[str, object]]
+    str,
+    Callable[
+        [ResultadoAnalisis, dict[str, object], PerfilOrganizacion], dict[str, object]
+    ],
 ] = {
     "post_linkedin": _sistema_post,
     "newsletter": _sistema_newsletter,
@@ -352,7 +386,14 @@ class GeneradorActivos:
         self.proveedor = proveedor
         #: Conocimiento de marca de la organizacion. Por defecto, el
         #: perfil neutro: el generador no sabe de quien escribe.
-        self.perfil = perfil or _PERFIL
+        #:
+        #: Este perfil es el UNICO lugar del que salen la identidad del
+        #: prompt y las constantes del contrato. Antes el prompt tomaba
+        #: la suya de una constante de modulo y las constantes de un
+        #: perfil neutro congelado al importar, y este `self.perfil`
+        #: solo llegaba al grounding: el motor juzgaba con un perfil y
+        #: escribia con otro.
+        self.perfil = perfil or _perfil_neutro()
 
     # -- API pública ------------------------------------------------
     #
@@ -417,7 +458,7 @@ class GeneradorActivos:
         spec = _ESPECIFICACIONES[formato]
         fuente = resultado.interaccion
         crudo = self._pedir(
-            spec.construir_prompt(fuente), max_tokens=spec.max_tokens
+            spec.construir_prompt(fuente, self.perfil), max_tokens=spec.max_tokens
         )
         crudo_texto = json.dumps(crudo, ensure_ascii=False)
 
@@ -440,7 +481,7 @@ class GeneradorActivos:
         # El sistema arma el resto, incluido el titulo/titular derivado
         # de la primera oracion del copy o resumen que el modelo escribio.
         # Ver `_titulo_del_sistema`.
-        datos.update(_SISTEMA[formato](resultado, crudo))
+        datos.update(_SISTEMA[formato](resultado, crudo, self.perfil))
 
         try:
             activo = spec.clase.model_validate(datos)
