@@ -31,6 +31,7 @@ Rama: `main` · Entrega: `single-pr` · Test runner: `pytest` (offline).
 - **T2** — CLI `sieve publicar --curar-dir --simulado` + tests. Ruta: inline.
   S5, S6. ✅ (3 tests).
 - **T3** — README M5 (uso, política IAM) + M5 marcado ✅. Ruta: inline. S1, S7.
+  ✅
 
 ## Log
 
@@ -40,3 +41,6 @@ Rama: `main` · Entrega: `single-pr` · Test runner: `pytest` (offline).
 - **L2** — T1+T2 cerrados: `PublicadorOci` con seam inyectable (SDK `oci`
   importado lazy), guard de curaduría (`publicable()`), modo simulado, y
   `sieve publicar` (simulado por defecto). 8 tests nuevos.
+- **L3** — T3 cerrado: README con sección de publicación, política IAM
+  acotada (`where target.bucket.name`), y M5 marcado ✅. M5 cerrado de
+  punta a punta: curaduría → `sieve publicar` → OCI.

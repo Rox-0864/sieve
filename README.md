@@ -693,6 +693,49 @@ grounding rechazado no es publicable, y el panel no puede saltarse eso.
 
 ---
 
+## Publicación (M5)
+
+La curaduría aprueba; la publicación da destino. `sieve publicar` sube los activos aprobados
+(`curado=True` **y** grounding limpio) a OCI Object Storage y genera un Pre-Authenticated
+Request (PAR) para cada uno.
+
+### Solo sale lo firmado
+
+El guard es el mismo de siempre: `publicable()` exige las dos condiciones, y `PublicadorOci`
+rechaza cualquier paquete que no las cumpla. Un activo pendiente o rechazado se saltea, no se
+publica "por las dudas".
+
+### Simulado por defecto
+
+```bash
+sieve publicar --curar-dir data/curacion                 # simulado: no toca la red
+sieve publicar --curar-dir data/curacion --no-simulado   # sube de verdad
+```
+
+El modo simulado es el default porque un comando no debería pegarle a una nube sin que se lo
+pidas explícito. Para subir de verdad hace falta el extra `oci` y credenciales válidas en
+`~/.oci/config`. El cliente real se importa lazy: instalar el SDK sigue siendo opcional, y
+ningún test toca la red.
+
+El resultado de cada subida es honesto: `guardado_con_exito`, `fallido` o `simulado`. Un
+fallo de escritura se reporta como `fallido`, no se esconde para que la demo se vea linda.
+
+### Política IAM acotada
+
+Las credenciales del pipeline tienen que poder escribir en el bucket y nada más. Una policy
+de OCI acotada al bucket:
+
+```text
+Allow group <grupo-sieve> to manage objects in compartment <compartment>
+  where target.bucket.name = 'communitylab-activos-marketing'
+```
+
+Sin la cláusula `where`, la policy otorga acceso a todos los buckets del compartment — eso es
+lo que "acotada" viene a evitar. El `url_preautenticada` de cada subida es un PAR de solo
+lectura (`ObjectRead`) con vencimiento, para compartir el objeto sin exponer el bucket entero.
+
+---
+
 | Hito | Qué produce | Listo |
 |---|---|---|
 | **M0** Cimientos | repo, estructura, contrato Pydantic | ✅ |
@@ -701,7 +744,7 @@ grounding rechazado no es publicable, y el panel no puede saltarse eso.
 | **M3** Puntuación y router | fórmula ponderada + ramas, con tests | ✅ |
 | **M4** Grounding | 7 checks mecánicos + gate humano obligatorio | ✅ |
 | **M4** Activos | 3 formatos, prompts few-shot, JSON validado, 0 checks propios | ✅ |
-| **M5** OCI | bucket, PAR, política IAM acotada | |
+| **M5** OCI | bucket, PAR, política IAM acotada | ✅ |
 | **M6** Interfaz | panel de curaduría Streamlit con aprobar/rechazar | ✅ |
 | **M7** Orquestación | flujo n8n sobre la API | |
 | **M8** Pulido | README, diagrama, demo, tag `v1.0` | |
