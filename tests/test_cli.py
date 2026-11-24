@@ -15,6 +15,7 @@ import pytest
 
 from sieve.analysis.base import ResultadoLLM
 from sieve.cli import main
+from sieve.curation import PaqueteCuracion
 from sieve.ingestion.cache import CacheDisco
 from sieve.ingestion.stackexchange import ClienteStackExchange, clave_de_preguntas
 
@@ -311,3 +312,41 @@ def test_generar_no_publica_nada(
     # Y el FAQ nunca sale listo para publicar, porque el contrato por
     # defecto dice justamente eso.
     assert datos["sugerencia_contenido_faq"]["status"] == "derivado_a_mentoria"
+
+
+def test_generar_escribe_paquetes_de_curacion(
+    lote_analizado: Path, tmp_path: Path, capsys: pytest.CaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`--curar-dir` escribe un paquete por activo, con fuente e informe.
+
+    El activo pelado no alcanza para curar: el panel necesita ver de que
+    mensaje salio y por que el grounding lo aprobo. El paquete es la
+    unidad que junta las dos cosas, y este test verifica que la CLI lo
+    arma entero.
+    """
+    monkeypatch.setattr(
+        "sieve.analysis.providers.construir_proveedor", lambda *a, **k: _Falso(True)
+    )
+    destino = tmp_path / "curacion"
+    assert main(
+        [
+            "generar", str(lote_analizado), "--provider", "ollama",
+            "--perfil", "one", "--curar-dir", str(destino),
+        ]
+    ) == 0
+    capsys.readouterr()
+
+    nombres = sorted(p.name for p in destino.glob("*.json"))
+    assert nombres == ["m1.faq.json", "m1.newsletter.json", "m1.post_linkedin.json"]
+
+    paquete = PaqueteCuracion.model_validate_json(
+        (destino / "m1.post_linkedin.json").read_text(encoding="utf-8")
+    )
+    assert paquete.decision == "pendiente"
+    assert paquete.activo["curado"] is False
+    assert paquete.fuente.autor == "Ana"
+    # El informe llega entero y se puede reconstruir: sin el, el panel
+    # no tendria que mostrarle al curador.
+    assert paquete.informe_tipado().veredicto != "rechazado"
+    assert paquete.respuesta_cruda != ""

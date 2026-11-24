@@ -30,7 +30,7 @@ Rama: `main` · Entrega: `single-pr` · Test runner: `pytest` (offline).
   activo, informe serializado, respuesta cruda, decisión) + `guardar`/`cargar`.
   Ruta: inline. S2, S3, S6. ✅ (15 tests, commit a continuación).
 - **T2** — `generar` escribe paquetes de curaduría (flag nuevo) sin romper
-  `--salida`. Ruta: inline. S2.
+  `--salida`. Ruta: inline. S2. ✅ (`--curar-dir`, commit a continuación).
 - **T3** — Panel Streamlit: carga el directorio, muestra fuente + activo +
   informe, botones aprobar/rechazar, persiste la decisión. Ruta: inline. S1, S3,
   S4, S6.
@@ -45,3 +45,5 @@ Rama: `main` · Entrega: `single-pr` · Test runner: `pytest` (offline).
 - **L2** — T1 cerrado: `sieve/curation.py` + `tests/test_curation.py` (15 tests).
   El paquete junta fuente + activo + informe + respuesta cruda; la decisión
   (aprobado/rechazado) da vuelta `curado` y exige motivo en el rechazo.
+- **L3** — T2 cerrado: `generar --curar-dir` escribe un paquete por activo
+  aprobado, con fuente + informe + respuesta cruda. `--salida` intacto.

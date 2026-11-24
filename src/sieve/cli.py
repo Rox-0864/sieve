@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 from sieve.analysis.hibrido import AnalizadorHibrido
+from sieve.curation import Formato, PaqueteCuracion, guardar_paquete
 from sieve.ingestion import (
     ClienteStackExchange,
     CuotaAgotadaError,
@@ -34,6 +35,16 @@ from sieve.perfil import (
     listar_perfiles,
     verificar_perfil,
 )
+
+#: La CLI trabaja con las etiquetas del CONTRATO (las claves de
+#: `ActivosGenerados`); el paquete de curacion usa las etiquetas internas
+#: de `_ESPECIFICACIONES`. Este mapa es el unico puente, y vive aca porque
+#: es la CLI la que sabe ambos vocabularios.
+FORMATO_POR_ETIQUETA: dict[str, Formato] = {
+    "post_linkedin": "post_linkedin",
+    "destreza_newsletter_semanal": "newsletter",
+    "sugerencia_contenido_faq": "faq",
+}
 
 
 def _cmd_ingest(args: argparse.Namespace) -> int:
@@ -291,6 +302,9 @@ def _cmd_generar(args: argparse.Namespace) -> int:
     #: activos de un lote en un solo `ActivosGenerados` seria pisar los
     #: posts de siete personas y quedarse con uno.
     por_mensaje: dict[str, dict[str, object]] = {}
+    #: Los paquetes de curacion, uno por activo aprobado. Van a
+    #: `--curar-dir`, de donde el panel los lee.
+    paquetes: list[PaqueteCuracion] = []
 
     for i, interaccion in enumerate(lote.interacciones, start=1):
         # `mensaje_id` es opcional en el contrato, y sin el no hay forma
@@ -329,6 +343,18 @@ def _cmd_generar(args: argparse.Namespace) -> int:
             por_mensaje.setdefault(interaccion.mensaje_id, {})[etiqueta] = (
                 salida.activo
             )
+            if args.curar_dir:
+                paquetes.append(
+                    PaqueteCuracion.desde_activo(
+                        salida.activo,
+                        salida.informe,
+                        interaccion,
+                        FORMATO_POR_ETIQUETA[etiqueta],
+                        respuesta_cruda=salida.respuesta_cruda,
+                        campos_ignorados=salida.campos_ignorados,
+                        version_prompt=salida.version_prompt,
+                    )
+                )
             print(f"\n  [{i}] {etiqueta}: {salida.informe.veredicto}")
             if salida.campos_ignorados:
                 print(f"    campos ignorados: {list(salida.campos_ignorados)}")
@@ -339,9 +365,16 @@ def _cmd_generar(args: argparse.Namespace) -> int:
 
     print(
         f"\n{aprobados} activos con grounding limpio, {con_rechazo} rechazados.\n"
-        "NINGUNO es publicable: la curaduria es obligatoria y el panel (M6) "
-        "todavia no existe."
+        "NINGUNO es publicable: la curaduria es obligatoria. Firmalos con "
+        "el panel (M6)."
     )
+    if args.curar_dir:
+        # Un paquete por activo, con la fuente, el informe y la respuesta
+        # cruda: es lo que el panel necesita para que la firma no sea a
+        # ciegas.
+        for paquete in paquetes:
+            destino = guardar_paquete(paquete, args.curar_dir)
+            print(f"paquete de curacion: {destino}")
     if args.salida:
         # `--salida` es un PREFIJO: se escribe un `ActivosGenerados` por
         # interaccion, que es la unidad del contrato de ONE. Un solo
@@ -431,6 +464,14 @@ def main(argv: list[str] | None = None) -> int:
         "--salida",
         default=None,
         help="prefijo de salida: se escribe <prefijo>.<mensaje_id>.json",
+    )
+    p_gen.add_argument(
+        "--curar-dir",
+        default=None,
+        help=(
+            "directorio donde escribir un paquete de curacion por activo, "
+            "listo para el panel (M6)"
+        ),
     )
     p_gen.add_argument(
         "--perfil",
