@@ -1,6 +1,6 @@
 [project]
 name = "sieve"
-version = "0.1.0"
+version = "1.0.0"
 description = "Turns raw community conversations into publish-ready content."
 readme = "README.md"
 requires-python = ">=3.11"

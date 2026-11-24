@@ -17,18 +17,18 @@ entrada de FAQ.
 
 ## Arquitectura
 
-Siete etapas. Cada una es un módulo aparte, testeable por separado, y ninguna sabe nada
+Ocho etapas. Cada una es un módulo aparte, testeable por separado, y ninguna sabe nada
 de los detalles internos de la siguiente.
 
-```
-   ① INGESTA ──────►  ② NORMALIZAR ──────►  ③ ANALIZAR ──────►  ④ PUNTUAR
-   JSON/CSV         esquema Pydantic      LLM: sentimiento   fórmula ponderada
-   Webhook          dedupe, validación    temas, señales     (explicable)
-                                    │
-                                    ▼
-   ⑦ PUBLICAR ◄──  ⑥ GENERAR ◄──  ⑤ ENRUTAR ◄──────────────────┘
-   OCI Object       un prompt por         rama
-   Storage          canal + few-shot      condicional
+```mermaid
+flowchart LR
+    INGESTA["① INGESTA<br/>JSON / CSV<br/>Webhook"] --> NORMALIZAR["② NORMALIZAR<br/>esquema Pydantic<br/>dedupe, validación"]
+    NORMALIZAR --> ANALIZAR["③ ANALIZAR<br/>LLM: sentimiento,<br/>temas, señales"]
+    ANALIZAR --> PUNTUAR["④ PUNTUAR<br/>fórmula ponderada<br/>explicable"]
+    PUNTUAR --> ENRUTAR["⑤ ENRUTAR<br/>rama condicional"]
+    ENRUTAR --> GENERAR["⑥ GENERAR<br/>un prompt por canal<br/>+ few-shot"]
+    GENERAR --> CURAR["⑦ CURAR<br/>panel humano<br/>aprobar / rechazar"]
+    CURAR --> PUBLICAR["⑧ PUBLICAR<br/>OCI Object Storage<br/>+ PAR"]
 ```
 
 **Por qué la lógica de dominio vive en Python y no en n8n.** n8n es el gatillo y el
@@ -747,10 +747,39 @@ lectura (`ObjectRead`) con vencimiento, para compartir el objeto sin exponer el 
 | **M5** OCI | bucket, PAR, política IAM acotada | ✅ |
 | **M6** Interfaz | panel de curaduría Streamlit con aprobar/rechazar | ✅ |
 | **M7** Orquestación | flujo n8n sobre la API | |
-| **M8** Pulido | README, diagrama, demo, tag `v1.0` | |
+| **M8** Pulido | README, diagrama, demo, tag `v1.0` | ✅ |
 
 Cada hito termina en algo que corre de punta a punta. Ningún hito es "el 80% del módulo
 funciona".
+
+---
+
+## Demo de punta a punta
+
+Con el lote sintético que ya está en el repo (`data/samples/lote_demo.json`), el recorrido
+completo. Los primeros pasos corren sin red; la generación necesita Ollama.
+
+```bash
+# 1. Ingesta — offline
+sieve ingest data/samples/lote_demo.json
+
+# 2. Análisis — heurístico (offline) o LLM (Ollama local)
+sieve analyze data/samples/lote_demo.json --salida data/analizado.json
+sieve analyze data/samples/lote_demo.json --provider ollama --salida data/analizado.json
+
+# 3. Generación — Ollama, escribe los activos y los paquetes de curaduría
+sieve generar data/analizado.json --provider ollama --perfil one \
+  --salida data/activos --curar-dir data/curacion
+
+# 4. Curaduría — panel humano (aprobar/rechazar)
+streamlit run src/sieve/ui/curar.py -- data/curacion
+
+# 5. Publicación — simulado (o --no-simulado con credenciales OCI)
+sieve publicar --curar-dir data/curacion
+```
+
+El paso 4 es el que cierra el loop: sin la firma del panel, `curado` queda en `False` y el
+paso 5 saltea todo. La demo más honesta es la que deja ver ese gate en acción.
 
 ---
 
