@@ -20,7 +20,8 @@ import sys
 from pathlib import Path
 
 from sieve.analysis.hibrido import AnalizadorHibrido
-from sieve.curation import Formato, PaqueteCuracion, guardar_paquete
+from sieve.config import settings
+from sieve.curation import Formato, PaqueteCuracion, cargar_paquetes, guardar_paquete
 from sieve.ingestion import (
     ClienteStackExchange,
     CuotaAgotadaError,
@@ -35,6 +36,7 @@ from sieve.perfil import (
     listar_perfiles,
     verificar_perfil,
 )
+from sieve.publicacion import ClienteOci, PublicadorOci
 
 #: La CLI trabaja con las etiquetas del CONTRATO (las claves de
 #: `ActivosGenerados`); el paquete de curacion usa las etiquetas internas
@@ -421,6 +423,58 @@ def _cmd_perfiles(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_publicar(args: argparse.Namespace) -> int:
+    """Sube los activos curados a OCI. Solo lo que esta firmado.
+
+    Por defecto es SIMULADO: no toca la red ni exige credenciales, y
+    cada activo sale con `status="simulado"`. Para subir de verdad hace
+    falta `--no-simulado` y el extra `oci` instalado. El default seguro
+    no es prudencia: es la regla de que un comando no deberia pegarle a
+    una nube sin que se lo pidas explicito.
+    """
+    paquetes = cargar_paquetes(args.curar_dir)
+    if not paquetes:
+        print(f"no hay paquetes en {args.curar_dir}", file=sys.stderr)
+        return 1
+
+    aprobados = [p for p in paquetes if p.publicable()]
+    saltados = [p for p in paquetes if not p.publicable()]
+
+    cliente: ClienteOci | None = None
+    if not args.simulado:
+        try:
+            cliente = ClienteOci(bucket=args.bucket)
+        except ImportError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+
+    publicador = PublicadorOci(
+        cliente, bucket=args.bucket, prefijo=args.prefijo
+    )
+
+    for paquete in saltados:
+        print(f"  salteado (sin firmar): {paquete.mensaje_id}.{paquete.formato} "
+              f"({paquete.decision})")
+
+    if not aprobados:
+        print("nada que publicar: no hay paquetes aprobados.")
+        return 0
+
+    fallos = 0
+    for paquete in aprobados:
+        resultado = publicador.publicar(paquete)
+        extra = resultado.url_preautenticada or ""
+        print(f"  {resultado.status}: {resultado.bucket}/{resultado.ruta_objeto} {extra}")
+        if resultado.status == "fallido":
+            fallos += 1
+            if publicador.ultimo_error:
+                print(f"    error: {publicador.ultimo_error}", file=sys.stderr)
+
+    print(f"{len(aprobados) - fallos} publicados, {fallos} fallidos "
+          f"({len(saltados)} salteados).")
+    return 1 if fallos else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="sieve", description="Sieve — ingesta de conversaciones de comunidad."
@@ -488,6 +542,23 @@ def main(argv: list[str] | None = None) -> int:
         help="lista los perfiles de organizacion y lo que cada uno no sabe",
     )
     p_perfiles.set_defaults(func=_cmd_perfiles)
+
+    p_pub = sub.add_parser(
+        "publicar", help="sube activos curados a OCI (M5)"
+    )
+    p_pub.add_argument("--curar-dir", required=True, help="directorio de paquetes de curacion")
+    p_pub.add_argument(
+        "--simulado",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "modo simulado: no toca la red (default). Con --no-simulado sube "
+            "de verdad, y exige el extra 'oci' + credenciales."
+        ),
+    )
+    p_pub.add_argument("--bucket", default=settings.oci_bucket, help="bucket de OCI")
+    p_pub.add_argument("--prefijo", default=settings.oci_prefix, help="prefijo del objeto")
+    p_pub.set_defaults(func=_cmd_publicar)
 
     p_cache = sub.add_parser("cache", help="estado del cache")
     p_cache.add_argument("--cache-dir", default="data/cache/stackexchange")
