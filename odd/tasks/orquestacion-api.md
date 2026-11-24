@@ -22,8 +22,8 @@ Rama: `main` · Entrega: `single-pr` · Test runner: `pytest` (offline).
 
 - **T1** — `sieve/api.py` (FastAPI) + `api` extra + tests. Ruta: inline.
   S1, S2, S3, S4, S6. ✅ (7 tests).
-- **T2** — `docs/n8n-workflow.json`: el flujo n8n. Ruta: inline. S5.
-- **T3** — README M7 + M7 marcado ✅. Ruta: inline. S1, S5.
+- **T2** — `docs/n8n-workflow.json`: el flujo n8n. Ruta: inline. S5. ✅
+- **T3** — README M7 + M7 marcado ✅. Ruta: inline. S1, S5. ✅
 
 ## Log
 
@@ -32,3 +32,6 @@ Rama: `main` · Entrega: `single-pr` · Test runner: `pytest` (offline).
   (heurística por defecto), `/generar` (sin fallback), `/publicar`
   (simulado por defecto). Extra `api` (`fastapi` + `uvicorn`). 7 tests
   offline con `TestClient`.
+- **L3** — T2+T3 cerrados: `docs/n8n-workflow.json` (template importable) y
+  README con sección de orquestación + diagrama de secuencia. M7 marcado ✅.
+  Roadmap completo: M0-M8, todos ✅.

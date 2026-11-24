@@ -736,6 +736,51 @@ lectura (`ObjectRead`) con vencimiento, para compartir el objeto sin exponer el 
 
 ---
 
+## Orquestación (M7)
+
+La API HTTP expone las etapas de máquina del pipeline, y n8n las enlaza. La curaduría sigue
+siendo humana: la API no cura.
+
+### La API
+
+```bash
+uvicorn sieve.api:app --reload
+```
+
+| Endpoint | Qué hace | Default |
+|---|---|---|
+| `POST /analizar` | analiza un `LoteComunidad` | heurística (offline) |
+| `POST /generar` | genera activos desde un lote analizado | sin fallback (exige LLM) |
+| `POST /publicar` | publica paquetes curados | simulado |
+| `GET /health` | liveness | — |
+
+Los errores son HTTP con nombre —un `400` que dice por qué—, no un `500` silencioso. Un flujo
+n8n que se rompe sin saber por qué no es un flujo, es una bomba.
+
+### El flujo n8n
+
+`docs/n8n-workflow.json` es el template para importar en n8n. El recorrido:
+
+```mermaid
+sequenceDiagram
+    participant C as Comunidad
+    participant N as n8n
+    participant A as API Sieve
+    C->>N: Webhook (lote crudo)
+    N->>A: POST /analizar
+    A-->>N: lote analizado
+    N->>A: POST /generar
+    A-->>N: activos (curado=false)
+    N->>N: ¿total > 0?
+    N-->>C: activos generados
+```
+
+n8n es el gatillo y el pegamento (`Webhook → HTTP → IF → Response`); la lógica vive en Python.
+La curaduría pasa en el panel (M6) entre `generar` y `publicar`, y la publicación se dispara
+con `POST /publicar` una vez que el humano firmó.
+
+---
+
 | Hito | Qué produce | Listo |
 |---|---|---|
 | **M0** Cimientos | repo, estructura, contrato Pydantic | ✅ |
@@ -746,7 +791,7 @@ lectura (`ObjectRead`) con vencimiento, para compartir el objeto sin exponer el 
 | **M4** Activos | 3 formatos, prompts few-shot, JSON validado, 0 checks propios | ✅ |
 | **M5** OCI | bucket, PAR, política IAM acotada | ✅ |
 | **M6** Interfaz | panel de curaduría Streamlit con aprobar/rechazar | ✅ |
-| **M7** Orquestación | flujo n8n sobre la API | |
+| **M7** Orquestación | flujo n8n sobre la API | ✅ |
 | **M8** Pulido | README, diagrama, demo, tag `v1.0` | ✅ |
 
 Cada hito termina en algo que corre de punta a punta. Ningún hito es "el 80% del módulo
@@ -790,6 +835,7 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"        # tests, lint, types
 pip install -e ".[ui]"         # para el panel de curaduría (M6)
+pip install -e ".[api]"        # para la API HTTP (M7)
 
 cp .env.example .env      # después cargar tus API keys
 
@@ -819,7 +865,8 @@ guardan, y [`ATTRIBUTION.md`](ATTRIBUTION.md) es un archivo real, no una promesa
 ## Stack
 
 Python 3.11 · Pydantic v2 · adaptador de LLM agnóstico de proveedor (Gemini / OpenAI /
-Ollama) · OCI Object Storage (Always Free) · Streamlit · n8n · pytest · Ruff · mypy
+Ollama) · OCI Object Storage (Always Free) · Streamlit · FastAPI · n8n · pytest · Ruff ·
+mypy
 
 ---
 
