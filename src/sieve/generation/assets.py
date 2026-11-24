@@ -410,6 +410,16 @@ class GeneradorActivos:
     def generar_faq(self, resultado: ResultadoAnalisis) -> Resultado[ActivoBase]:
         return self._generar(resultado, "faq")
 
+    def generar(self, resultado: ResultadoAnalisis, formato: str) -> Resultado[ActivoBase]:
+        """Genera un activo por formato, elegido por el router (M3).
+
+        Es el punto de entrada del pipeline enrutado: `formato` viene de
+        `FORMATO_POR_TIPO[decision.tipo]`, no de una lista fija de tres.
+        Un formato desconocido revienta con `KeyError` en `_generar`, que
+        es lo que corresponde: es un error de programador, no un dato.
+        """
+        return self._generar(resultado, formato)
+
     # -- El pipeline, uno solo para los tres formatos ---------------
 
     def _pedir(self, prompt: str, *, max_tokens: int) -> dict[str, object]:

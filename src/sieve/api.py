@@ -22,7 +22,7 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
-from sieve.analysis.base import ProveedorLLM, ResultadoAnalisis
+from sieve.analysis.base import ProveedorLLM
 from sieve.analysis.hibrido import AnalizadorHibrido
 from sieve.analysis.providers import construir_proveedor
 from sieve.config import settings
@@ -30,6 +30,11 @@ from sieve.curation import PaqueteCuracion
 from sieve.generation.assets import ErrorDeGeneracionError, GeneradorActivos
 from sieve.models import ActivosGenerados, AlmacenamientoOci, LoteComunidad
 from sieve.perfil import NOMBRE_POR_DEFECTO, cargar_perfil
+from sieve.pipeline import (
+    ETIQUETA_POR_FORMATO,
+    FORMATO_POR_TIPO,
+    enrutar_lote_analizado,
+)
 from sieve.publicacion import ClienteOci, PublicadorOci
 
 app = FastAPI(
@@ -115,37 +120,29 @@ def generar(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     generador = GeneradorActivos(proveedor, perfil_org)
-    por_id = {a.mensaje_id: a for a in lote.analisis if a.mensaje_id}
     por_mensaje: dict[str, dict[str, object]] = {}
     total = 0
     rechazados = 0
 
-    for interaccion in lote.interacciones:
-        if interaccion.mensaje_id is None:
+    # El router decide QUE activo sale de cada mensaje; el generador lo
+    # produce. Generar los tres formatos era gastar tokens en activos que
+    # el router ya habia descartado.
+    for resultado, decision in enrutar_lote_analizado(lote):
+        mensaje_id = resultado.interaccion.mensaje_id
+        if mensaje_id is None:
             continue
-        analisis = por_id.get(interaccion.mensaje_id)
-        if analisis is None:
+        formato = FORMATO_POR_TIPO[decision.tipo]
+        etiqueta = ETIQUETA_POR_FORMATO[formato]
+        try:
+            salida = generador.generar(resultado, formato)
+        except ErrorDeGeneracionError:
+            rechazados += 1
             continue
-        entrada = ResultadoAnalisis(
-            interaccion=interaccion, analisis=analisis, procedencia="llm"
-        )
-        for etiqueta, metodo in (
-            ("post_linkedin", generador.generar_post),
-            ("destreza_newsletter_semanal", generador.generar_newsletter),
-            ("sugerencia_contenido_faq", generador.generar_faq),
-        ):
-            try:
-                salida = metodo(entrada)
-            except ErrorDeGeneracionError:
-                rechazados += 1
-                continue
-            if salida.activo is None:
-                rechazados += 1
-                continue
-            total += 1
-            por_mensaje.setdefault(interaccion.mensaje_id, {})[etiqueta] = (
-                salida.activo
-            )
+        if salida.activo is None:
+            rechazados += 1
+            continue
+        total += 1
+        por_mensaje.setdefault(mensaje_id, {})[etiqueta] = salida.activo
 
     activos = [ActivosGenerados.model_validate(a) for a in por_mensaje.values()]
     return RespuestaGeneracion(total=total, rechazados=rechazados, activos=activos)

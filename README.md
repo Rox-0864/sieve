@@ -290,6 +290,21 @@ FAQ tira el mejor material del lote.
 `caso_exito` y `faq` salen con `es_revision_manual=True`: no se publican sin que alguien
 los firme.
 
+### El router manda al generador
+
+El mapeo es 1:1 — un mensaje enruta a **un** activo, no a tres:
+
+| Tipo | Formato que se genera |
+|---|---|
+| `caso_exito` | `post_linkedin` (el testimonio) |
+| `faq` | `sugerencia_contenido_faq` |
+| `highlight` | `destaque_newsletter_semanal` |
+
+`generar` puntúa, enruta y produce solo ese formato. Generar los tres para quedarse con
+uno era gastar tokens (y curaduría) en activos que el router ya había descartado. El
+"bloque de newsletter" de un `caso_exito` es una agregación posterior (n8n junta los
+logros de la semana), no una segunda pieza por mensaje.
+
 ---
 
 ---

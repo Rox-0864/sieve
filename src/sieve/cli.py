@@ -21,7 +21,7 @@ from pathlib import Path
 
 from sieve.analysis.hibrido import AnalizadorHibrido
 from sieve.config import settings
-from sieve.curation import Formato, PaqueteCuracion, cargar_paquetes, guardar_paquete
+from sieve.curation import PaqueteCuracion, cargar_paquetes, guardar_paquete
 from sieve.ingestion import (
     ClienteStackExchange,
     CuotaAgotadaError,
@@ -36,17 +36,12 @@ from sieve.perfil import (
     listar_perfiles,
     verificar_perfil,
 )
+from sieve.pipeline import (
+    ETIQUETA_POR_FORMATO,
+    FORMATO_POR_TIPO,
+    enrutar_lote_analizado,
+)
 from sieve.publicacion import ClienteOci, PublicadorOci
-
-#: La CLI trabaja con las etiquetas del CONTRATO (las claves de
-#: `ActivosGenerados`); el paquete de curacion usa las etiquetas internas
-#: de `_ESPECIFICACIONES`. Este mapa es el unico puente, y vive aca porque
-#: es la CLI la que sabe ambos vocabularios.
-FORMATO_POR_ETIQUETA: dict[str, Formato] = {
-    "post_linkedin": "post_linkedin",
-    "destreza_newsletter_semanal": "newsletter",
-    "sugerencia_contenido_faq": "faq",
-}
 
 
 def _cmd_ingest(args: argparse.Namespace) -> int:
@@ -270,7 +265,6 @@ def _cmd_generar(args: argparse.Namespace) -> int:
         )
         return 1
 
-    from sieve.analysis.base import ResultadoAnalisis
     from sieve.analysis.providers import construir_proveedor
     from sieve.generation.assets import ErrorDeGeneracionError, GeneradorActivos
 
@@ -295,11 +289,11 @@ def _cmd_generar(args: argparse.Namespace) -> int:
     # El analisis se enlaza por `mensaje_id`, no por posicion: un lote
     # puede traer los analisis en otro orden, y emparejarlos por indice
     # publicaria el testimonio de una persona con el puntaje de otra.
-    por_id = {a.mensaje_id: a for a in lote.analisis if a.mensaje_id}
+    # `enrutar_lote_analizado` hace ese enlace y ademas puntua y enruta.
     generador = GeneradorActivos(proveedor, perfil)
     aprobados = 0
     con_rechazo = 0
-    #: `mensaje_id` -> {formato: activo}, porque `ActivosGenerados` tiene
+    #: `mensaje_id` -> {etiqueta: activo}, porque `ActivosGenerados` tiene
     #: UN slot por formato y es la respuesta de UNA interaccion. Meter los
     #: activos de un lote en un solo `ActivosGenerados` seria pisar los
     #: posts de siete personas y quedarse con uno.
@@ -308,62 +302,53 @@ def _cmd_generar(args: argparse.Namespace) -> int:
     #: `--curar-dir`, de donde el panel los lee.
     paquetes: list[PaqueteCuracion] = []
 
-    for i, interaccion in enumerate(lote.interacciones, start=1):
-        # `mensaje_id` es opcional en el contrato, y sin el no hay forma
-        # de enlazar el analisis. Sin enlace NO se genera: se adivina el
-        # analisis por posicion, y un lote con los analisis en otro orden
-        # publica el testimonio de una persona con el puntaje de otra.
-        if interaccion.mensaje_id is None:
-            print(f"  [{i}] sin mensaje_id, se salta (no se puede enlazar)")
+    # El router decide QUE activo sale de cada mensaje; el generador lo
+    # produce. Generar los tres formatos era gastar tokens (y curacion)
+    # en activos que el router ya habia descartado.
+    for i, (resultado, decision) in enumerate(enrutar_lote_analizado(lote), start=1):
+        interaccion = resultado.interaccion
+        mensaje_id = interaccion.mensaje_id
+        if mensaje_id is None:
+            # `enrutar_lote_analizado` omite estos; el guard es defensa
+            # contra un cambio futuro en ese invariante.
             continue
-        analisis = por_id.get(interaccion.mensaje_id)
-        if analisis is None:
-            print(f"  [{i}] sin analisis, se salta {interaccion.mensaje_id}")
+        formato = FORMATO_POR_TIPO[decision.tipo]
+        etiqueta = ETIQUETA_POR_FORMATO[formato]
+        try:
+            salida = generador.generar(resultado, formato)
+        except ErrorDeGeneracionError as exc:
+            print(f"\n  [{i}] {etiqueta}: SIN ACTIVO ({exc})")
+            con_rechazo += 1
             continue
-        entrada = ResultadoAnalisis(
-            interaccion=interaccion, analisis=analisis, procedencia="llm"
-        )
-        for etiqueta, metodo in (
-            ("post_linkedin", generador.generar_post),
-            ("destreza_newsletter_semanal", generador.generar_newsletter),
-            ("sugerencia_contenido_faq", generador.generar_faq),
-        ):
-            try:
-                salida = metodo(entrada)
-            except ErrorDeGeneracionError as exc:
-                print(f"\n  [{i}] {etiqueta}: SIN ACTIVO ({exc})")
-                con_rechazo += 1
-                continue
-            if salida.activo is None:
-                con_rechazo += 1
-                print(f"\n  [{i}] {etiqueta}: RECHAZADO")
-                for v in salida.informe.rechazados:
-                    for h in v.hallazgos:
-                        print(f"    - {v.nombre}: {h}")
-                continue
-            aprobados += 1
-            por_mensaje.setdefault(interaccion.mensaje_id, {})[etiqueta] = (
-                salida.activo
-            )
-            if args.curar_dir:
-                paquetes.append(
-                    PaqueteCuracion.desde_activo(
-                        salida.activo,
-                        salida.informe,
-                        interaccion,
-                        FORMATO_POR_ETIQUETA[etiqueta],
-                        respuesta_cruda=salida.respuesta_cruda,
-                        campos_ignorados=salida.campos_ignorados,
-                        version_prompt=salida.version_prompt,
-                    )
+        if salida.activo is None:
+            con_rechazo += 1
+            print(f"\n  [{i}] {etiqueta}: RECHAZADO")
+            for v in salida.informe.rechazados:
+                for h in v.hallazgos:
+                    print(f"    - {v.nombre}: {h}")
+            continue
+        aprobados += 1
+        por_mensaje.setdefault(mensaje_id, {})[etiqueta] = salida.activo
+        if args.curar_dir:
+            paquetes.append(
+                PaqueteCuracion.desde_activo(
+                    salida.activo,
+                    salida.informe,
+                    interaccion,
+                    formato,
+                    respuesta_cruda=salida.respuesta_cruda,
+                    campos_ignorados=salida.campos_ignorados,
+                    version_prompt=salida.version_prompt,
                 )
-            print(f"\n  [{i}] {etiqueta}: {salida.informe.veredicto}")
-            if salida.campos_ignorados:
-                print(f"    campos ignorados: {list(salida.campos_ignorados)}")
-            for s in salida.informe.supuestos:
-                print(f"    supuesto: {s}")
-            for m in salida.informe.marcos:
-                print(f"    marco: {m}")
+            )
+        print(f"\n  [{i}] {etiqueta} ({decision.tipo.value}): {salida.informe.veredicto}")
+        print(f"    ruta: {decision.motivo}")
+        if salida.campos_ignorados:
+            print(f"    campos ignorados: {list(salida.campos_ignorados)}")
+        for s in salida.informe.supuestos:
+            print(f"    supuesto: {s}")
+        for m in salida.informe.marcos:
+            print(f"    marco: {m}")
 
     print(
         f"\n{aprobados} activos con grounding limpio, {con_rechazo} rechazados.\n"

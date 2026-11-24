@@ -109,7 +109,7 @@ def test_generar_con_proveedor_doble(
     )
     assert respuesta.status_code == 200
     cuerpo = respuesta.json()
-    assert cuerpo["total"] == 3
+    assert cuerpo["total"] == 1
     assert cuerpo["rechazados"] == 0
     assert len(cuerpo["activos"]) == 1
 
