@@ -67,6 +67,12 @@ Thumbs.db
 D3CcommunityLab.pdf
 *.pdf
 
+# ─── AGENTE ─────────────────────────────────────────────────────────────
+# Registro de skills generado por Gentle AI / Gentle Shell. Es
+# infraestructura local del agente (con rutas de la maquina), no
+# codigo del proyecto.
+.atl/
+
 # Restos de instalaciones tipo cmake que aparecen por accidente en repos.
 {{}}/
 {{*/}}
