@@ -292,18 +292,22 @@ los firme.
 
 ### El router manda al generador
 
-El mapeo es 1:1 — un mensaje enruta a **un** activo, no a tres:
+Un mensaje enruta a lo que el router eligió — nada más:
 
 | Tipo | Formato que se genera |
 |---|---|
-| `caso_exito` | `post_linkedin` (el testimonio) |
+| `caso_exito` | `post_linkedin` + `destaque_newsletter_semanal` |
 | `faq` | `sugerencia_contenido_faq` |
 | `highlight` | `destaque_newsletter_semanal` |
 
-`generar` puntúa, enruta y produce solo ese formato. Generar los tres para quedarse con
-uno era gastar tokens (y curaduría) en activos que el router ya había descartado. El
-"bloque de newsletter" de un `caso_exito` es una agregación posterior (n8n junta los
-logros de la semana), no una segunda pieza por mensaje.
+`generar` puntúa, enruta y produce solo lo que corresponde. Generar los tres para
+quedarse con uno era gastar tokens (y curaduría) en activos que el router ya había
+descartado. Un `caso_exito` sale en dos piezas, como dice el README ("post + bloque de
+newsletter"): el testimonio para LinkedIn y su bloque "Logro de la Semana".
+
+Los bloques de newsletter se agregan después con `sieve.newsletter.armar_newsletter`:
+junta los destaques curados en el resumen semanal, sin inventar contenido para llenar la
+semana.
 
 ---
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from sieve.models import (
     Analisis,
+    ConteoProcedencia,
     Interaccion,
     LoteComunidad,
     Sentimiento,
@@ -19,6 +20,7 @@ from sieve.pipeline import (
     ETIQUETA_POR_FORMATO,
     FORMATO_POR_TIPO,
     enrutar_lote_analizado,
+    procedencia_del_lote,
     reconstruir_resumen,
 )
 
@@ -50,10 +52,16 @@ def _lote(*pares: tuple[str, Analisis]) -> LoteComunidad:
     )
 
 
-def test_formato_por_tipo_es_biyeccion() -> None:
-    """Tres tipos, tres formatos, sin repetidos ni huecos."""
+def test_formato_por_tipo_cubre_todos_los_tipos() -> None:
     assert set(FORMATO_POR_TIPO) == set(TipoActivo)
-    assert set(FORMATO_POR_TIPO.values()) == {"post_linkedin", "newsletter", "faq"}
+
+
+def test_caso_exito_produce_post_y_newsletter() -> None:
+    """El README dice 'post + bloque de newsletter': un logro sale en dos
+    piezas, no en una."""
+    assert FORMATO_POR_TIPO[TipoActivo.CASO_EXITO] == ("post_linkedin", "newsletter")
+    assert FORMATO_POR_TIPO[TipoActivo.FAQ] == ("faq",)
+    assert FORMATO_POR_TIPO[TipoActivo.HIGHLIGHT] == ("newsletter",)
 
 
 def test_etiqueta_por_formato_usa_los_nombres_del_contrato() -> None:
@@ -93,3 +101,35 @@ def test_reconstruir_resumen_omite_sin_id() -> None:
     )
     resumen = reconstruir_resumen(lote)
     assert [r.mensaje_id for r in resumen.resultados] == ["m1"]
+
+
+def test_procedencia_todo_llm() -> None:
+    lote = _lote(("m1", _anal("m1")))
+    lote = lote.model_copy(update={"procedencia": ConteoProcedencia(llm=1)})
+    assert procedencia_del_lote(lote) == "llm"
+
+
+def test_procedencia_todo_heuristico() -> None:
+    lote = _lote(("m1", _anal("m1")))
+    lote = lote.model_copy(update={"procedencia": ConteoProcedencia(heuristico=1)})
+    assert procedencia_del_lote(lote) == "heuristico"
+
+
+def test_procedencia_mezclada_es_mixto() -> None:
+    lote = _lote(("m1", _anal("m1")), ("m2", _anal("m2")))
+    lote = lote.model_copy(
+        update={"procedencia": ConteoProcedencia(llm=1, heuristico=1)}
+    )
+    assert procedencia_del_lote(lote) == "mixto"
+
+
+def test_procedencia_sin_informar_es_heuristico() -> None:
+    """Un lote viejo sin procedencia no puede declarar 'llm': sobrestima."""
+    assert procedencia_del_lote(_lote(("m1", _anal("m1")))) == "heuristico"
+
+
+def test_reconstruir_resumen_deriva_la_procedencia() -> None:
+    lote = _lote(("m1", _anal("m1")))
+    lote = lote.model_copy(update={"procedencia": ConteoProcedencia(heuristico=1)})
+    resumen = reconstruir_resumen(lote)
+    assert resumen.resultados[0].procedencia == "heuristico"

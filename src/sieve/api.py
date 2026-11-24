@@ -131,18 +131,18 @@ def generar(
         mensaje_id = resultado.interaccion.mensaje_id
         if mensaje_id is None:
             continue
-        formato = FORMATO_POR_TIPO[decision.tipo]
-        etiqueta = ETIQUETA_POR_FORMATO[formato]
-        try:
-            salida = generador.generar(resultado, formato)
-        except ErrorDeGeneracionError:
-            rechazados += 1
-            continue
-        if salida.activo is None:
-            rechazados += 1
-            continue
-        total += 1
-        por_mensaje.setdefault(mensaje_id, {})[etiqueta] = salida.activo
+        for formato in FORMATO_POR_TIPO[decision.tipo]:
+            etiqueta = ETIQUETA_POR_FORMATO[formato]
+            try:
+                salida = generador.generar(resultado, formato)
+            except ErrorDeGeneracionError:
+                rechazados += 1
+                continue
+            if salida.activo is None:
+                rechazados += 1
+                continue
+            total += 1
+            por_mensaje.setdefault(mensaje_id, {})[etiqueta] = salida.activo
 
     activos = [ActivosGenerados.model_validate(a) for a in por_mensaje.values()]
     return RespuestaGeneracion(total=total, rechazados=rechazados, activos=activos)

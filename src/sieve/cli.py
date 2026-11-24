@@ -312,43 +312,43 @@ def _cmd_generar(args: argparse.Namespace) -> int:
             # `enrutar_lote_analizado` omite estos; el guard es defensa
             # contra un cambio futuro en ese invariante.
             continue
-        formato = FORMATO_POR_TIPO[decision.tipo]
-        etiqueta = ETIQUETA_POR_FORMATO[formato]
-        try:
-            salida = generador.generar(resultado, formato)
-        except ErrorDeGeneracionError as exc:
-            print(f"\n  [{i}] {etiqueta}: SIN ACTIVO ({exc})")
-            con_rechazo += 1
-            continue
-        if salida.activo is None:
-            con_rechazo += 1
-            print(f"\n  [{i}] {etiqueta}: RECHAZADO")
-            for v in salida.informe.rechazados:
-                for h in v.hallazgos:
-                    print(f"    - {v.nombre}: {h}")
-            continue
-        aprobados += 1
-        por_mensaje.setdefault(mensaje_id, {})[etiqueta] = salida.activo
-        if args.curar_dir:
-            paquetes.append(
-                PaqueteCuracion.desde_activo(
-                    salida.activo,
-                    salida.informe,
-                    interaccion,
-                    formato,
-                    respuesta_cruda=salida.respuesta_cruda,
-                    campos_ignorados=salida.campos_ignorados,
-                    version_prompt=salida.version_prompt,
+        for formato in FORMATO_POR_TIPO[decision.tipo]:
+            etiqueta = ETIQUETA_POR_FORMATO[formato]
+            try:
+                salida = generador.generar(resultado, formato)
+            except ErrorDeGeneracionError as exc:
+                print(f"\n  [{i}] {etiqueta}: SIN ACTIVO ({exc})")
+                con_rechazo += 1
+                continue
+            if salida.activo is None:
+                con_rechazo += 1
+                print(f"\n  [{i}] {etiqueta}: RECHAZADO")
+                for v in salida.informe.rechazados:
+                    for h in v.hallazgos:
+                        print(f"    - {v.nombre}: {h}")
+                continue
+            aprobados += 1
+            por_mensaje.setdefault(mensaje_id, {})[etiqueta] = salida.activo
+            if args.curar_dir:
+                paquetes.append(
+                    PaqueteCuracion.desde_activo(
+                        salida.activo,
+                        salida.informe,
+                        interaccion,
+                        formato,
+                        respuesta_cruda=salida.respuesta_cruda,
+                        campos_ignorados=salida.campos_ignorados,
+                        version_prompt=salida.version_prompt,
+                    )
                 )
-            )
-        print(f"\n  [{i}] {etiqueta} ({decision.tipo.value}): {salida.informe.veredicto}")
-        print(f"    ruta: {decision.motivo}")
-        if salida.campos_ignorados:
-            print(f"    campos ignorados: {list(salida.campos_ignorados)}")
-        for s in salida.informe.supuestos:
-            print(f"    supuesto: {s}")
-        for m in salida.informe.marcos:
-            print(f"    marco: {m}")
+            print(f"\n  [{i}] {etiqueta} ({decision.tipo.value}): {salida.informe.veredicto}")
+            print(f"    ruta: {decision.motivo}")
+            if salida.campos_ignorados:
+                print(f"    campos ignorados: {list(salida.campos_ignorados)}")
+            for s in salida.informe.supuestos:
+                print(f"    supuesto: {s}")
+            for m in salida.informe.marcos:
+                print(f"    marco: {m}")
 
     print(
         f"\n{aprobados} activos con grounding limpio, {con_rechazo} rechazados.\n"

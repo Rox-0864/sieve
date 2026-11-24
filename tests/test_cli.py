@@ -309,10 +309,12 @@ def test_generar_no_publica_nada(
     datos = json.loads(escritos[0].read_text(encoding="utf-8"))
     post = datos["post_linkedin"]
     assert post["curado"] is False
-    # El router manda este logro a caso_exito -> post de LinkedIn. El
-    # newsletter y el FAQ no se generan: no hay que producir tres activos
+    # El router manda este logro a caso_exito -> post + bloque de
+    # newsletter. El FAQ no se genera: no hay que producir tres activos
     # para quedarse con uno.
-    assert datos["destaque_newsletter_semanal"] is None
+    newsletter = datos["destaque_newsletter_semanal"]
+    assert newsletter is not None
+    assert newsletter["curado"] is False
     assert datos["sugerencia_contenido_faq"] is None
 
 
@@ -340,7 +342,7 @@ def test_generar_escribe_paquetes_de_curacion(
     capsys.readouterr()
 
     nombres = sorted(p.name for p in destino.glob("*.json"))
-    assert nombres == ["m1.post_linkedin.json"]
+    assert nombres == ["m1.newsletter.json", "m1.post_linkedin.json"]
 
     paquete = PaqueteCuracion.model_validate_json(
         (destino / "m1.post_linkedin.json").read_text(encoding="utf-8")
