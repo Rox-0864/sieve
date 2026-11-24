@@ -33,7 +33,7 @@ Rama: `main` · Entrega: `single-pr` · Test runner: `pytest` (offline).
   `--salida`. Ruta: inline. S2. ✅ (`--curar-dir`, commit a continuación).
 - **T3** — Panel Streamlit: carga el directorio, muestra fuente + activo +
   informe, botones aprobar/rechazar, persiste la decisión. Ruta: inline. S1, S3,
-  S4, S6.
+  S4, S6. ✅ (5 tests AppTest, commit a continuación).
 - **T4** — README: sección de curaduría y cómo correr el panel. Ruta: inline.
   S5.
 
@@ -47,3 +47,7 @@ Rama: `main` · Entrega: `single-pr` · Test runner: `pytest` (offline).
   (aprobado/rechazado) da vuelta `curado` y exige motivo en el rechazo.
 - **L3** — T2 cerrado: `generar --curar-dir` escribe un paquete por activo
   aprobado, con fuente + informe + respuesta cruda. `--salida` intacto.
+- **L4** — T3 cerrado: `sieve/ui/curar.py` carga el directorio, muestra
+  fuente/activo/informe, y firma aprobar/rechazar sobre el mismo archivo.
+  Testeado con `AppTest` (sin navegador): aprobar persiste, rechazar sin
+  motivo no firma.
